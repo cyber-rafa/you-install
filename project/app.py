@@ -6,6 +6,7 @@ import shutil
 import zipfile
 import requests
 import subprocess
+import time  # Para pausas entre tentativas
 from tqdm import tqdm
 from io import BytesIO
 from flask import Flask, render_template, request, send_file, jsonify, Response
@@ -24,6 +25,11 @@ os.makedirs(FFMPEG_FOLDER, exist_ok=True)
 FFMPEG_DOWNLOAD_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
 FFMPEG_EXECUTABLE = os.path.join(FFMPEG_FOLDER, "bin", "ffmpeg.exe")
 MAX_STORAGE_MB = 1000  # 1GB para uso local
+
+# Configurações para requisições
+MAX_RETRIES = 3        # Número máximo de tentativas
+RETRY_DELAY = 2        # Segundos entre tentativas
+HTTP_TIMEOUT = 60      # Timeout mais generoso para requisições HTTP
 
 # ===== FUNÇÕES DE GERENCIAMENTO DE ARMAZENAMENTO =====
 def cleanup_downloads():
@@ -247,6 +253,39 @@ def format_file_size(size_bytes):
     size_gb = size_mb / 1024
     return f"{size_gb:.2f} GB"
 
+def with_retry(func, *args, max_retries=MAX_RETRIES, retry_delay=RETRY_DELAY, **kwargs):
+    """
+    Executa uma função com sistema de retry automático.
+    Útil para operações que podem falhar temporariamente como requisições HTTP.
+    
+    Args:
+        func: A função a ser executada
+        *args: Argumentos posicionais para a função
+        max_retries: Número máximo de tentativas (padrão: definido na configuração global)
+        retry_delay: Tempo de espera entre tentativas em segundos
+        **kwargs: Argumentos nomeados para a função
+        
+    Returns:
+        O resultado da função ou levanta a última exceção após todas as tentativas
+    """
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            last_error = e
+            print(f"Tentativa {attempt+1}/{max_retries} falhou: {str(e)}")
+            
+            if attempt < max_retries - 1:
+                # Espera progressiva entre tentativas (aumenta o tempo a cada falha)
+                wait_time = retry_delay * (attempt + 1)
+                print(f"Aguardando {wait_time}s antes da próxima tentativa...")
+                time.sleep(wait_time)
+    
+    # Se chegou aqui, todas as tentativas falharam
+    raise last_error
+
 # ===== ROTAS DA APLICAÇÃO =====
 @app.route('/')
 def homepage():
@@ -278,118 +317,128 @@ def get_video_info():
             'no_warnings': True,
             'format': 'best',
             'skip_download': True,
-            'socket_timeout': 30  # Aumentar timeout para evitar erros de conexão
+            'socket_timeout': HTTP_TIMEOUT,     # Usar timeout configurado globalmente
+            'retries': MAX_RETRIES,            # Configurar retries na yt-dlp
+            'fragment_retries': MAX_RETRIES,   # Configurar retries para fragmentos de vídeo
         }
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            
-            # Verificar se é uma playlist
-            if 'entries' in info:
-                return jsonify({
-                    "is_playlist": True,
-                    "title": info.get('title', 'Playlist'),
-                    "video_count": len(info['entries']),
-                    "playlist_id": info.get('id', ''),
-                    "ffmpeg_available": is_ffmpeg_installed()
-                })
-            
-            # Processar vídeo único
-            formats = []
-            ffmpeg_available = is_ffmpeg_installed()
-            
-            # Processar formatos progressivos (áudio+vídeo juntos)
-            progressive_formats = []
-            for f in info['formats']:
-                if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
-                    height = f.get('height', 0)
-                    if height > 0:
-                        progressive_formats.append({
-                            'format_id': f['format_id'],
-                            'ext': f['ext'],
-                            'resolution': f'{height}p',
-                            'filesize': f.get('filesize', 0),
-                            'filesize_formatted': format_file_size(f.get('filesize', 0)),
-                            'fps': f.get('fps', 0),
-                            'is_progressive': True
-                        })
-            
-            # Processar formatos de alta resolução (se FFmpeg disponível)
-            video_only_formats = []
-            if ffmpeg_available:
-                # Encontrar o melhor formato de áudio
-                best_audio = None
-                for f in info['formats']:
-                    if f.get('acodec') != 'none' and f.get('vcodec') == 'none':
-                        current_tbr = f.get('tbr', 0) or 0
-                        best_tbr = best_audio.get('tbr', 0) or 0 if best_audio else 0
-                        
-                        if best_audio is None or current_tbr > best_tbr:
-                            best_audio = f
-                
-                # Combinar com formatos de vídeo
-                if best_audio:
-                    for f in info['formats']:
-                        if f.get('vcodec') != 'none' and f.get('acodec') == 'none':
-                            height = f.get('height', 0)
-                            if height > 0:
-                                format_id = f"{f['format_id']}+{best_audio['format_id']}"
-                                video_size = f.get('filesize', 0) or 0
-                                audio_size = best_audio.get('filesize', 0) or 0
-                                total_size = video_size + audio_size
-                                
-                                video_only_formats.append({
-                                    'format_id': format_id,
-                                    'ext': 'mp4',
-                                    'resolution': f'{height}p',
-                                    'filesize': total_size,
-                                    'filesize_formatted': format_file_size(total_size),
-                                    'fps': f.get('fps', 0),
-                                    'is_progressive': False
-                                })
-            
-            # Combinar e classificar formatos
-            formats = progressive_formats + video_only_formats
-            formats.sort(key=lambda x: int(x['resolution'][:-1]), reverse=True)
-            
-            # Remover duplicatas de resolução (priorizar formatos progressivos)
-            unique_formats = {}
-            for fmt in formats:
-                resolution = fmt['resolution']
-                if resolution not in unique_formats or (not unique_formats[resolution]['is_progressive'] and fmt['is_progressive']):
-                    unique_formats[resolution] = fmt
-            
-            formats = list(unique_formats.values())
-            formats.sort(key=lambda x: int(x['resolution'][:-1]), reverse=True)
-            
-            # Formatar para resposta
-            resolutions = {}
-            resolutions_info = {}
-            for fmt in formats:
-                resolution = fmt['resolution']
-                resolutions[resolution] = fmt['format_id']
-                resolutions_info[resolution] = {
-                    'format_id': fmt['format_id'],
-                    'filesize': fmt['filesize_formatted'],
-                    'fps': fmt.get('fps', 0),
-                    'requires_ffmpeg': not fmt.get('is_progressive', True)
-                }
-            
+        # Função a ser executada com retry
+        def extract_video_info(url, options):
+            with yt_dlp.YoutubeDL(options) as ydl:
+                return ydl.extract_info(url, download=False)
+        
+        # Usar sistema de retry para obter informações do vídeo
+        info = with_retry(extract_video_info, url, ydl_opts)
+        
+        # Verificar se é uma playlist
+        if 'entries' in info:
             return jsonify({
-                "title": info['title'],
-                "thumbnail": info.get('thumbnail', ''),
-                "duration": info.get('duration', 0),
-                "uploader": info.get('uploader', ''),
-                "view_count": info.get('view_count', 0),
-                "resolutions": resolutions,
-                "resolutions_info": resolutions_info,
-                "is_playlist": False,
-                "ffmpeg_available": ffmpeg_available
+                "is_playlist": True,
+                "title": info.get('title', 'Playlist'),
+                "video_count": len(info['entries']),
+                "playlist_id": info.get('id', ''),
+                "ffmpeg_available": is_ffmpeg_installed()
             })
+        
+        # Processar vídeo único
+        formats = []
+        ffmpeg_available = is_ffmpeg_installed()
+        
+        # Processar formatos progressivos (áudio+vídeo juntos)
+        progressive_formats = []
+        for f in info['formats']:
+            if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
+                height = f.get('height', 0)
+                if height > 0:
+                    progressive_formats.append({
+                        'format_id': f['format_id'],
+                        'ext': f['ext'],
+                        'resolution': f'{height}p',
+                        'filesize': f.get('filesize', 0),
+                        'filesize_formatted': format_file_size(f.get('filesize', 0)),
+                        'fps': f.get('fps', 0),
+                        'is_progressive': True
+                    })
+        
+        # Processar formatos de alta resolução (se FFmpeg disponível)
+        video_only_formats = []
+        if ffmpeg_available:
+            # Encontrar o melhor formato de áudio
+            best_audio = None
+            for f in info['formats']:
+                if f.get('acodec') != 'none' and f.get('vcodec') == 'none':
+                    current_tbr = f.get('tbr', 0) or 0
+                    best_tbr = best_audio.get('tbr', 0) or 0 if best_audio else 0
+                    
+                    if best_audio is None or current_tbr > best_tbr:
+                        best_audio = f
+            
+            # Combinar com formatos de vídeo
+            if best_audio:
+                for f in info['formats']:
+                    if f.get('vcodec') != 'none' and f.get('acodec') == 'none':
+                        height = f.get('height', 0)
+                        if height > 0:
+                            format_id = f"{f['format_id']}+{best_audio['format_id']}"
+                            video_size = f.get('filesize', 0) or 0
+                            audio_size = best_audio.get('filesize', 0) or 0
+                            total_size = video_size + audio_size
+                            
+                            video_only_formats.append({
+                                'format_id': format_id,
+                                'ext': 'mp4',
+                                'resolution': f'{height}p',
+                                'filesize': total_size,
+                                'filesize_formatted': format_file_size(total_size),
+                                'fps': f.get('fps', 0),
+                                'is_progressive': False
+                            })
+        
+        # Combinar e classificar formatos
+        formats = progressive_formats + video_only_formats
+        formats.sort(key=lambda x: int(x['resolution'][:-1]), reverse=True)
+        
+        # Remover duplicatas de resolução (priorizar formatos progressivos)
+        unique_formats = {}
+        for fmt in formats:
+            resolution = fmt['resolution']
+            if resolution not in unique_formats or (not unique_formats[resolution]['is_progressive'] and fmt['is_progressive']):
+                unique_formats[resolution] = fmt
+        
+        formats = list(unique_formats.values())
+        formats.sort(key=lambda x: int(x['resolution'][:-1]), reverse=True)
+        
+        # Formatar para resposta
+        resolutions = {}
+        resolutions_info = {}
+        for fmt in formats:
+            resolution = fmt['resolution']
+            resolutions[resolution] = fmt['format_id']
+            resolutions_info[resolution] = {
+                'format_id': fmt['format_id'],
+                'filesize': fmt['filesize_formatted'],
+                'fps': fmt.get('fps', 0),
+                'requires_ffmpeg': not fmt.get('is_progressive', True)
+            }
+        
+        return jsonify({
+            "title": info['title'],
+            "thumbnail": info.get('thumbnail', ''),
+            "duration": info.get('duration', 0),
+            "uploader": info.get('uploader', ''),
+            "view_count": info.get('view_count', 0),
+            "resolutions": resolutions,
+            "resolutions_info": resolutions_info,
+            "is_playlist": False,
+            "ffmpeg_available": ffmpeg_available
+        })
     
     except Exception as e:
         print(f"Erro ao obter info do vídeo: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "error": str(e),
+            "message": "Falha ao obter informações do vídeo. Por favor, verifique sua conexão e tente novamente."
+        }), 500
 
 @app.route('/download', methods=['POST'])
 def download_video():
@@ -426,7 +475,9 @@ def download_video():
                 'nocheckcertificate': True,
                 'ignoreerrors': False,
                 'noplaylist': True,
-                'socket_timeout': 30,  # Aumentar timeout para evitar erros de conexão
+                'socket_timeout': HTTP_TIMEOUT,     # Usar timeout configurado globalmente
+                'retries': MAX_RETRIES,            # Configurar retries na yt-dlp
+                'fragment_retries': MAX_RETRIES,   # Configurar retries para fragmentos de vídeo
                 'postprocessors': [{
                     'key': 'FFmpegMetadata',
                     'add_metadata': True,
@@ -437,9 +488,13 @@ def download_video():
             if os.path.exists(FFMPEG_EXECUTABLE):
                 ydl_opts['ffmpeg_location'] = os.path.dirname(FFMPEG_EXECUTABLE)
             
-            # Realizar download
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+            # Realizar download com retry
+            def download_with_retry(url, options):
+                with yt_dlp.YoutubeDL(options) as ydl:
+                    ydl.download([url])
+                return True
+                
+            with_retry(download_with_retry, url, ydl_opts)
             
             # Entregar arquivo
             if os.path.exists(output_path):
@@ -480,7 +535,9 @@ def download_playlist():
             'no_warnings': True,
             'ignoreerrors': True,
             'nooverwrites': True,
-            'socket_timeout': 30  # Aumentar timeout para evitar erros de conexão
+            'socket_timeout': HTTP_TIMEOUT,     # Usar timeout configurado globalmente
+            'retries': MAX_RETRIES,            # Configurar retries na yt-dlp
+            'fragment_retries': MAX_RETRIES,   # Configurar retries para fragmentos de vídeo
         }
         
         # Configurar FFmpeg se disponível
@@ -490,9 +547,13 @@ def download_playlist():
             # Usar formato progressivo se FFmpeg não estiver disponível
             ydl_opts['format'] = f'best[height<={quality}]'
         
-        # Realizar download
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+        # Realizar download com retry
+        def download_playlist_with_retry(url, options):
+            with yt_dlp.YoutubeDL(options) as ydl:
+                ydl.download([url])
+            return True
+            
+        with_retry(download_playlist_with_retry, url, ydl_opts)
             
         return "Playlist baixada com sucesso!", 200
 
@@ -535,4 +596,4 @@ if __name__ == '__main__':
     print(f"Status do FFmpeg: {ffmpeg_status}")
     
     # Iniciar servidor na porta 5000 (padrão do Flask)
-    app.run(debug=True)
+    app.run(debug=True, threaded=True)  # Usar modo threaded para melhor desempenho com múltiplas requisições

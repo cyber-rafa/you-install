@@ -28,6 +28,13 @@
             </div>
         </div>
         
+        <div id="storage-status-bar" class="storage-limited">
+            <div class="storage-icon">⚠️</div>
+            <div class="storage-message">
+                Armazenamento limitado a 500MB. Vídeos mais antigos serão automaticamente removidos.
+            </div>
+        </div>
+        
         <div id="download-modal" class="modal" style="display: none;">
             <div class="modal-content">
                 <h3>Baixando FFmpeg</h3>
@@ -79,6 +86,9 @@
                         <li>Download rápido e direto</li>
                     </ul>
                 </div>
+                <div id="size-warning" class="warning" style="display: none;">
+                    Atenção: Vídeos longos ou em alta resolução podem exceder o limite de armazenamento.
+                </div>
                 <button type="submit" class="download-btn">
                     <span class="btn-icon">⬇️</span>
                     <span class="btn-text">Baixar Vídeo</span>
@@ -103,7 +113,7 @@
                         <option value="2160">2160p (4K)</option>
                     </select>
                 </div>
-                <p class="warning">Atenção: Baixar uma playlist completa pode levar tempo e ocupar bastante espaço em disco.</p>
+                <p class="warning">Atenção: Devido às limitações de armazenamento, apenas os 10 primeiros vídeos da playlist serão baixados.</p>
                 <button type="submit" class="download-btn">
                     <span class="btn-icon">📋⬇️</span>
                     <span class="btn-text">Baixar Playlist</span>
@@ -415,6 +425,8 @@
                         <div class="info-item"><span>Codec:</span> ${formatInfo.vcodec}</div>
                         <div class="info-item"><span>Tamanho:</span> ${formatInfo.size || "Desconhecido"}</div>
                     `;
+                    
+                    checkVideoSize(data.duration || 0, formatInfo.resolution);
                 } catch (e) {
                     console.error("Erro ao processar informações de formato:", e);
                 }
@@ -620,6 +632,23 @@
             `;
             document.head.appendChild(style);
         })();
+
+        function checkVideoSize(duration, resolution) {
+            const warningElement = document.getElementById('size-warning');
+            if (!warningElement) {
+                return;
+            }
+            
+            warningElement.style.display = 'none';
+            
+            if (duration > 1800 && parseInt(resolution) >= 1080) {
+                warningElement.style.display = 'block';
+                warningElement.textContent = 'Atenção: Este vídeo é longo e em alta resolução. O download pode falhar devido às limitações de armazenamento.';
+            } else if (duration > 3600) {
+                warningElement.style.display = 'block';
+                warningElement.textContent = 'Atenção: Este vídeo é muito longo. Considere escolher uma qualidade menor para garantir um download completo.';
+            }
+        }
     </script>
 
 </body>

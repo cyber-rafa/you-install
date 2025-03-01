@@ -1,0 +1,28 @@
+# Diretórios
+__pycache__/
+downloads/
+ffmpeg/
+venv/
+.env
+.venv
+env/
+ENV/
+
+# Arquivos temporários
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.DS_Store
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+.pytype/
+
+# Arquivos de desenvolvimento
+*.log
+*.sqlite3
+.vscode/
+.idea/ 

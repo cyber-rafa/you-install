@@ -301,7 +301,7 @@ select:focus {
 #ffmpeg-status-bar {
     display: flex;
     align-items: center;
-    margin-bottom: 20px;
+    margin-bottom: 15px;
     padding: 12px 15px;
     border-radius: 8px;
     font-size: 0.95rem;
@@ -325,6 +325,70 @@ select:focus {
 
 .ffmpeg-message {
     flex: 1;
+}
+
+/* Status de armazenamento */
+#storage-status-bar {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 12px 15px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    background-color: rgba(59, 130, 246, 0.15);
+    border-left: 4px solid #3b82f6;
+}
+
+.storage-icon {
+    font-size: 1.3rem;
+    margin-right: 15px;
+}
+
+.storage-message {
+    flex: 1;
+}
+
+.storage-limited {
+    background-color: rgba(234, 179, 8, 0.15);
+    border-left: 4px solid #eab308;
+}
+
+.warning {
+    background-color: rgba(234, 179, 8, 0.2);
+    border-left: 4px solid #eab308;
+    color: #fef9c3;
+    padding: 12px 15px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    margin: 15px 0;
+    display: block;
+}
+
+/* Adicionar estilos para o aviso de tamanho */
+#size-warning {
+    background-color: rgba(239, 68, 68, 0.2);
+    border-left: 4px solid #ef4444;
+    color: #fee2e2;
+    transition: all 0.3s ease;
+    margin-bottom: 15px;
+}
+
+/* Erro 507 - Storage Exceeded */
+.error-507 {
+    background-color: rgba(239, 68, 68, 0.2);
+    border-left: 4px solid #ef4444;
+    color: #fee2e2;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 20px 0;
+    text-align: center;
+    font-weight: 500;
+}
+
+.error-507 .error-title {
+    font-size: 1.2rem;
+    margin-bottom: 10px;
+    color: #f87171;
 }
 
 .install-btn {

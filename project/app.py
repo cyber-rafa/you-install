@@ -7,25 +7,72 @@ import zipfile
 import requests
 import subprocess
 import time
+import threading
 from tqdm import tqdm
 from io import BytesIO
 from flask import Flask, render_template, request, send_file, jsonify, Response
 
 app = Flask(__name__)
 
+# Configurações do ambiente (suporte a variáveis de ambiente para hospedagem)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DOWNLOAD_FOLDER = os.path.join(BASE_DIR, "downloads")
-FFMPEG_FOLDER = os.path.join(BASE_DIR, "ffmpeg")
+DOWNLOAD_FOLDER = os.environ.get('DOWNLOAD_FOLDER', os.path.join(BASE_DIR, "downloads"))
+FFMPEG_FOLDER = os.environ.get('FFMPEG_FOLDER', os.path.join(BASE_DIR, "ffmpeg"))
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 os.makedirs(FFMPEG_FOLDER, exist_ok=True)
 
-FFMPEG_DOWNLOAD_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-FFMPEG_EXECUTABLE = os.path.join(FFMPEG_FOLDER, "bin", "ffmpeg.exe")
-MAX_STORAGE_MB = 1000
+# Detecta o sistema operacional
+IS_WINDOWS = os.name == 'nt'
 
-MAX_RETRIES = 3
-RETRY_DELAY = 2
-HTTP_TIMEOUT = 60
+# URLs e executáveis dependendo do sistema operacional
+if IS_WINDOWS:
+    FFMPEG_DOWNLOAD_URL = os.environ.get('FFMPEG_DOWNLOAD_URL', "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip")
+    FFMPEG_EXECUTABLE = os.path.join(FFMPEG_FOLDER, "bin", "ffmpeg.exe")
+else:
+    # Para Linux (Render), usa um binário diferente
+    FFMPEG_DOWNLOAD_URL = os.environ.get('FFMPEG_DOWNLOAD_URL', "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz")
+    FFMPEG_EXECUTABLE = os.path.join(FFMPEG_FOLDER, "bin", "ffmpeg")
+
+MAX_STORAGE_MB = int(os.environ.get('MAX_STORAGE_MB', '500'))  # Limitado a 500MB para hospedagem no Render
+
+MAX_RETRIES = int(os.environ.get('MAX_RETRIES', '3'))
+RETRY_DELAY = int(os.environ.get('RETRY_DELAY', '2'))
+HTTP_TIMEOUT = int(os.environ.get('HTTP_TIMEOUT', '60'))
+CLEANUP_THRESHOLD = int(os.environ.get('CLEANUP_THRESHOLD', '400'))  # Inicia limpeza quando o uso de disco atingir 400MB
+CLEANUP_INTERVAL = int(os.environ.get('CLEANUP_INTERVAL', '1800'))  # Limpeza a cada 30 minutos
+
+# Variável para controlar o agendamento da limpeza
+cleanup_thread = None
+cleanup_running = False
+
+def run_scheduled_cleanup():
+    """Executa limpeza periódica de arquivos antigos"""
+    global cleanup_running
+    
+    if cleanup_running:
+        return
+        
+    cleanup_running = True
+    
+    try:
+        while True:
+            print(f"Executando limpeza agendada a cada {CLEANUP_INTERVAL} segundos")
+            cleanup_downloads()
+            time.sleep(CLEANUP_INTERVAL)
+    except Exception as e:
+        print(f"Erro na limpeza agendada: {e}")
+    finally:
+        cleanup_running = False
+
+def start_cleanup_scheduler():
+    """Inicia o agendador de limpeza em uma thread separada"""
+    global cleanup_thread
+    
+    if cleanup_thread is None or not cleanup_thread.is_alive():
+        cleanup_thread = threading.Thread(target=run_scheduled_cleanup)
+        cleanup_thread.daemon = True
+        cleanup_thread.start()
+        print("Agendador de limpeza iniciado")
 
 def cleanup_downloads():
     if not os.path.exists(DOWNLOAD_FOLDER):
@@ -41,12 +88,23 @@ def cleanup_downloads():
                 file_size = os.path.getsize(file_path) / (1024 * 1024)
                 total_size += file_size
                 files_by_time.append((file_path, os.path.getmtime(file_path)))
+            elif os.path.isdir(file_path):
+                # Processa também diretórios (para playlists)
+                for root, _, files in os.walk(file_path):
+                    for sub_file in files:
+                        sub_file_path = os.path.join(root, sub_file)
+                        file_size = os.path.getsize(sub_file_path) / (1024 * 1024)
+                        total_size += file_size
+                        files_by_time.append((sub_file_path, os.path.getmtime(sub_file_path)))
+                    
+        print(f"Uso atual de armazenamento: {total_size:.2f}MB / {MAX_STORAGE_MB}MB")
         
-        if total_size > MAX_STORAGE_MB and files_by_time:
+        if total_size > CLEANUP_THRESHOLD and files_by_time:
+            print(f"Iniciando limpeza. Uso atual: {total_size:.2f}MB, limite: {MAX_STORAGE_MB}MB")
             files_by_time.sort(key=lambda x: x[1])
             
             for file_path, _ in files_by_time:
-                if total_size <= MAX_STORAGE_MB * 0.8:
+                if total_size <= MAX_STORAGE_MB * 0.7:  # Reduz para 70% para ter mais margem
                     break
                     
                 file_size = os.path.getsize(file_path) / (1024 * 1024)
@@ -55,6 +113,32 @@ def cleanup_downloads():
                 print(f"Arquivo removido para liberar espaço: {file_path}")
     except Exception as e:
         print(f"Erro ao limpar downloads: {e}")
+
+def check_storage_space(required_mb=0):
+    """Verifica se há espaço suficiente e limpa se necessário."""
+    try:
+        total_size = 0
+        for root, _, files in os.walk(DOWNLOAD_FOLDER):
+            for file in files:
+                file_path = os.path.join(root, file)
+                total_size += os.path.getsize(file_path) / (1024 * 1024)
+        
+        available = MAX_STORAGE_MB - total_size
+        if available < required_mb or total_size > CLEANUP_THRESHOLD:
+            cleanup_downloads()
+            
+        # Recalcula após limpeza
+        total_size = 0
+        for root, _, files in os.walk(DOWNLOAD_FOLDER):
+            for file in files:
+                file_path = os.path.join(root, file)
+                total_size += os.path.getsize(file_path) / (1024 * 1024)
+                
+        available = MAX_STORAGE_MB - total_size
+        return available >= required_mb
+    except Exception as e:
+        print(f"Erro ao verificar espaço disponível: {e}")
+        return True  # Em caso de erro, assume que há espaço
 
 def download_ffmpeg():
     if os.path.exists(FFMPEG_EXECUTABLE):
@@ -101,8 +185,18 @@ def download_ffmpeg():
         os.makedirs(temp_extract, exist_ok=True)
         
         try:
-            with zipfile.ZipFile(buffer) as zip_ref:
-                zip_ref.extractall(temp_extract)
+            # Extração depende do formato do arquivo (zip para Windows, tar.xz para Linux)
+            if IS_WINDOWS:
+                with zipfile.ZipFile(buffer) as zip_ref:
+                    zip_ref.extractall(temp_extract)
+            else:
+                import tarfile
+                import lzma
+                
+                # Para arquivos tar.xz no Linux
+                with lzma.open(buffer) as xz:
+                    with tarfile.open(fileobj=xz, mode='r:') as tar:
+                        tar.extractall(path=temp_extract)
             
             extracted_folders = [f for f in os.listdir(temp_extract) if os.path.isdir(os.path.join(temp_extract, f))]
             
@@ -115,7 +209,8 @@ def download_ffmpeg():
             
             bin_folder = None
             for root, dirs, files in os.walk(src_path):
-                if "ffmpeg.exe" in files:
+                executable_name = "ffmpeg.exe" if IS_WINDOWS else "ffmpeg"
+                if executable_name in files:
                     bin_folder = root
                     break
             
@@ -126,12 +221,19 @@ def download_ffmpeg():
             bin_dest = os.path.join(FFMPEG_FOLDER, "bin")
             os.makedirs(bin_dest, exist_ok=True)
             
-            executables = ["ffmpeg.exe", "ffprobe.exe", "ffplay.exe"]
+            if IS_WINDOWS:
+                executables = ["ffmpeg.exe", "ffprobe.exe", "ffplay.exe"]
+            else:
+                executables = ["ffmpeg", "ffprobe", "ffplay"]
+                
             for exe in executables:
                 if exe in os.listdir(bin_folder):
                     src_exe = os.path.join(bin_folder, exe)
                     dst_exe = os.path.join(bin_dest, exe)
                     shutil.copy2(src_exe, dst_exe)
+                    # No Linux, precisamos tornar os arquivos executáveis
+                    if not IS_WINDOWS:
+                        os.chmod(dst_exe, 0o755)
             
             shutil.rmtree(temp_extract)
             
@@ -382,6 +484,43 @@ def download_video():
         with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
             info = ydl.extract_info(url, download=False)
             title = sanitize_filename(info['title'])
+            
+            # Estima o tamanho do arquivo com base nas informações disponíveis
+            estimated_size_mb = 0
+            for f in info.get('formats', []):
+                if f.get('format_id') == format_id.split('+')[0]:
+                    filesize = f.get('filesize', 0)
+                    if filesize:
+                        estimated_size_mb = filesize / (1024 * 1024)
+                        # Adiciona margem para arquivos combinados
+                        if '+' in format_id:
+                            estimated_size_mb *= 1.5
+                        break
+            
+            # Se não conseguiu estimar, usa um valor padrão baseado na duração
+            if estimated_size_mb == 0 and info.get('duration'):
+                # Estimativa aproximada: 1MB por minuto para 360p, 2.5MB para 720p, 8MB para 1080p, etc.
+                heights = [f.get('height', 0) for f in info.get('formats', [])]
+                max_height = max(heights) if heights else 720
+                mb_per_minute = 1  # 360p
+                if max_height >= 2160:
+                    mb_per_minute = 20  # 4K
+                elif max_height >= 1440:
+                    mb_per_minute = 12  # 2K
+                elif max_height >= 1080:
+                    mb_per_minute = 8   # 1080p
+                elif max_height >= 720:
+                    mb_per_minute = 2.5  # 720p
+                
+                duration_minutes = info.get('duration', 0) / 60
+                estimated_size_mb = duration_minutes * mb_per_minute
+            
+            # Reserva espaço seguro
+            estimated_size_mb = max(estimated_size_mb, 50)  # Mínimo 50MB
+            
+            if not check_storage_space(estimated_size_mb):
+                return "Espaço de armazenamento insuficiente. Por favor, tente novamente mais tarde ou escolha uma qualidade menor.", 507
+            
             output_path = os.path.join(DOWNLOAD_FOLDER, f"{title}.mp4")
             
             ydl_opts = {
@@ -435,6 +574,12 @@ def download_playlist():
             return "Qualidades acima de 720p requerem FFmpeg. Por favor, escolha uma qualidade menor.", 400
 
     try:
+        # Verifica se há espaço suficiente para uma playlist
+        # Playlists podem ser grandes, então verifica se há pelo menos 100MB disponíveis
+        if not check_storage_space(100):
+            return "Espaço de armazenamento insuficiente para baixar a playlist. Por favor, tente novamente mais tarde.", 507
+
+        # Limita o número de vídeos da playlist para poupar espaço
         ydl_opts = {
             'format': f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]',
             'outtmpl': os.path.join(DOWNLOAD_FOLDER, 'playlist/%(playlist_title)s/%(title)s.%(ext)s'),
@@ -445,6 +590,7 @@ def download_playlist():
             'socket_timeout': HTTP_TIMEOUT,
             'retries': MAX_RETRIES,
             'fragment_retries': MAX_RETRIES,
+            'playlistend': 10  # Limita a 10 vídeos por playlist para economizar espaço
         }
         
         if os.path.exists(FFMPEG_EXECUTABLE):
@@ -491,4 +637,18 @@ if __name__ == '__main__':
     ffmpeg_status = "disponível" if is_ffmpeg_installed() else "não encontrado"
     print(f"Status do FFmpeg: {ffmpeg_status}")
     
-    app.run(debug=True, threaded=True)
+    # Inicia o agendador de limpeza automaticamente
+    start_cleanup_scheduler()
+    
+    # Configuração para ambiente de desenvolvimento ou produção (Render)
+    is_prod = os.environ.get('RENDER', False)
+    port = int(os.environ.get('PORT', 5000))
+    
+    if is_prod:
+        # Em produção (Render), não usar o modo debug
+        print(f"Iniciando servidor em modo produção na porta {port}")
+        app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
+    else:
+        # Em desenvolvimento, usar o modo debug
+        print("Iniciando servidor em modo desenvolvimento")
+        app.run(debug=True, threaded=True)

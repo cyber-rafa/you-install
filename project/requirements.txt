@@ -1,0 +1,7 @@
+Flask==2.3.3
+Werkzeug==2.3.7
+yt-dlp==2023.11.16
+requests==2.31.0
+tqdm==4.66.1
+gunicorn==21.2.0
+lxml==4.9.3 

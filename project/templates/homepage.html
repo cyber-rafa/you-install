@@ -112,7 +112,33 @@
             if (downloadBtn) {
                 downloadBtn.addEventListener('click', downloadFFmpeg);
             }
+            
+            // Adicionar evento de tecla para voltar à pesquisa
+            document.addEventListener('keydown', function(event) {
+                // Se pressionar ESC, volta para o formulário de pesquisa
+                if (event.key === 'Escape') {
+                    resetSearch();
+                }
+            });
         });
+        
+        // Função para resetar a busca e mostrar o formulário inicial
+        function resetSearch() {
+            // Limpar o campo de URL
+            document.getElementById("url").value = "";
+            
+            // Esconder as seções de resultado
+            document.getElementById("videoInfo").style.display = "none";
+            document.getElementById("qualitySection").style.display = "none";
+            document.getElementById("playlistSection").style.display = "none";
+            document.getElementById("status").style.display = "none";
+            
+            // Mostrar formulário de entrada
+            document.getElementById("videoForm").style.display = "block";
+            
+            // Dar foco ao campo de URL
+            document.getElementById("url").focus();
+        }
         
         // Função para baixar FFmpeg automaticamente
         function downloadFFmpeg() {
@@ -313,6 +339,11 @@
                 a.click();
                 a.remove();
                 updateStatus("Download concluído!");
+                
+                // Após 3 segundos, limpar formulário para nova busca
+                setTimeout(() => {
+                    resetSearch();
+                }, 3000);
             })
             .catch(error => {
                 console.error("Erro:", error);
@@ -339,6 +370,11 @@
             })
             .then(text => {
                 updateStatus("Playlist sendo baixada! Os vídeos serão salvos na pasta 'downloads/playlist'");
+                
+                // Após 3 segundos, limpar formulário para nova busca
+                setTimeout(() => {
+                    resetSearch();
+                }, 3000);
             })
             .catch(error => {
                 console.error("Erro:", error);

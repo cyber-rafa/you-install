@@ -26,11 +26,6 @@
  - Removendo formatos FON (Font) devido à obsolescência em sistemas modernos
 */
 
-/* Estilos para a página de download */
-
-/* Estilos para o body com gradiente animado */
-/* Reset básico para remover margens e paddings padrão */
-
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);

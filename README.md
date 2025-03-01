@@ -1,39 +1,34 @@
-# YouTube Downloader para Replit
+# YouTube Downloader para Windows
 
 Aplicativo web que permite baixar vídeos e playlists do YouTube em diferentes resoluções, incluindo resoluções altas como 1080p, 2K e 4K.
-
-## Como configurar no Replit
-
-1. Faça um fork deste repositório no Replit
-2. Execute o script de instalação do FFmpeg:
-   ```
-   bash install_ffmpeg.sh
-   ```
-3. Aguarde a instalação ser concluída
-4. Execute o aplicativo clicando no botão "Run"
 
 ## Funcionalidades
 
 - Baixar vídeos do YouTube em múltiplas resoluções
 - Suporte para baixar playlists completas
-- Gerenciamento automático de espaço (limitado a 300MB no Replit)
+- Gerenciamento automático de espaço
 - Instalação automática do FFmpeg para suportar vídeos em alta resolução
 - Interface web amigável
 
-## Limitações no Replit
-
-- O aplicativo tem um limite de armazenamento de 300MB para evitar problemas
-- Arquivos antigos são automaticamente removidos quando o espaço está ficando escasso
-- A velocidade de download pode ser limitada pelo ambiente Replit
-- O aplicativo pode hibernar após períodos de inatividade (plano gratuito do Replit)
-
-## Uso local
-
-Você também pode executar este aplicativo localmente:
+## Como usar
 
 1. Clone o repositório
 2. Instale as dependências: `pip install -r requirements.txt`
-3. Execute: `python project/app.py`
+3. Execute o aplicativo: `python project/app.py`
+4. Acesse em seu navegador: `http://localhost:5000`
+
+## Requisitos
+
+- Python 3.6 ou superior
+- FFmpeg (instalado automaticamente se não estiver presente)
+- Acesso à internet para baixar vídeos e o FFmpeg
+
+## Resolução de Problemas
+
+Se você encontrar erros de conexão como "Failed to fetch", pode ser devido a:
+1. Timeout nas requisições ao YouTube - o aplicativo agora utiliza timeouts mais generosos
+2. Problemas com o firewall ou proxy - certifique-se de que o acesso ao YouTube não está bloqueado
+3. Limitação temporária do YouTube - aguarde alguns minutos e tente novamente
 
 ## Observações
 

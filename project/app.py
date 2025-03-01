@@ -20,17 +20,10 @@ FFMPEG_FOLDER = os.path.join(BASE_DIR, "ffmpeg")
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 os.makedirs(FFMPEG_FOLDER, exist_ok=True)
 
-# Detectar ambiente (Replit ou local)
-IN_REPLIT = os.environ.get('REPL_ID') is not None
-
-# Configurações dependentes do ambiente
-if IN_REPLIT:
-    FFMPEG_EXECUTABLE = os.path.expanduser("~/bin/ffmpeg")
-    MAX_STORAGE_MB = 300  # Limite mais restritivo para Replit
-else:
-    FFMPEG_DOWNLOAD_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-    FFMPEG_EXECUTABLE = os.path.join(FFMPEG_FOLDER, "bin", "ffmpeg.exe")
-    MAX_STORAGE_MB = 1000  # Limite mais generoso para uso local
+# Configurações para Windows
+FFMPEG_DOWNLOAD_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+FFMPEG_EXECUTABLE = os.path.join(FFMPEG_FOLDER, "bin", "ffmpeg.exe")
+MAX_STORAGE_MB = 1000  # 1GB para uso local
 
 # ===== FUNÇÕES DE GERENCIAMENTO DE ARMAZENAMENTO =====
 def cleanup_downloads():
@@ -74,14 +67,6 @@ def download_ffmpeg():
     Baixa e configura o FFmpeg automaticamente.
     Retorna True se bem-sucedido, False caso contrário.
     """
-    # No Replit, a instalação é manual via script
-    if IN_REPLIT:
-        if os.path.exists(FFMPEG_EXECUTABLE):
-            print("FFmpeg já está instalado no Replit.")
-            return True
-        print("FFmpeg não encontrado no Replit. Execute o script install_ffmpeg.sh")
-        return False
-    
     # Verificar se já está instalado localmente
     if os.path.exists(FFMPEG_EXECUTABLE):
         print("FFmpeg já está instalado localmente.")
@@ -292,7 +277,8 @@ def get_video_info():
             'quiet': True,
             'no_warnings': True,
             'format': 'best',
-            'skip_download': True
+            'skip_download': True,
+            'socket_timeout': 30  # Aumentar timeout para evitar erros de conexão
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -440,6 +426,7 @@ def download_video():
                 'nocheckcertificate': True,
                 'ignoreerrors': False,
                 'noplaylist': True,
+                'socket_timeout': 30,  # Aumentar timeout para evitar erros de conexão
                 'postprocessors': [{
                     'key': 'FFmpegMetadata',
                     'add_metadata': True,
@@ -492,7 +479,8 @@ def download_playlist():
             'quiet': True,
             'no_warnings': True,
             'ignoreerrors': True,
-            'nooverwrites': True
+            'nooverwrites': True,
+            'socket_timeout': 30  # Aumentar timeout para evitar erros de conexão
         }
         
         # Configurar FFmpeg se disponível
@@ -533,32 +521,6 @@ def check_ffmpeg():
     else:
         return jsonify({"status": "failed", "message": "Falha ao baixar o FFmpeg automaticamente."})
 
-@app.route('/storage-info', methods=['GET'])
-def storage_info():
-    """
-    Retorna informações sobre o armazenamento usado pelo aplicativo.
-    Útil para monitorar limites no Replit.
-    """
-    try:
-        total_size = 0
-        file_count = 0
-        
-        for root, dirs, files in os.walk(DOWNLOAD_FOLDER):
-            for file in files:
-                file_path = os.path.join(root, file)
-                if os.path.exists(file_path):
-                    total_size += os.path.getsize(file_path)
-                    file_count += 1
-        
-        return jsonify({
-            "used_mb": round(total_size / (1024 * 1024), 2),
-            "limit_mb": MAX_STORAGE_MB,
-            "file_count": file_count,
-            "percentage": round((total_size / (1024 * 1024) / MAX_STORAGE_MB) * 100, 2)
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 # ===== INICIALIZAÇÃO DA APLICAÇÃO =====
 if __name__ == '__main__':
     # Verificar FFmpeg na inicialização
@@ -572,6 +534,5 @@ if __name__ == '__main__':
     ffmpeg_status = "disponível" if is_ffmpeg_installed() else "não encontrado"
     print(f"Status do FFmpeg: {ffmpeg_status}")
     
-    # Configurar porta e iniciar servidor
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # Iniciar servidor na porta 5000 (padrão do Flask)
+    app.run(debug=True)

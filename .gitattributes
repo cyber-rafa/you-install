@@ -1,0 +1,5 @@
+project/ffmpeg/bin/ffplay.exe filter=lfs diff=lfs merge=lfs -text
+is filter=lfs diff=lfs merge=lfs -text
+121.42 filter=lfs diff=lfs merge=lfs -text
+MB filter=lfs diff=lfs merge=lfs -text
+project/ffmpeg/bin/*.exe filter=lfs diff=lfs merge=lfs -text

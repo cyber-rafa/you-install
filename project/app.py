@@ -10,21 +10,79 @@ from tqdm import tqdm
 from io import BytesIO
 from flask import Flask, render_template, request, send_file, jsonify, Response
 
+# Inicialização da aplicação Flask
 app = Flask(__name__)
 
-# Configurações de pasta
+# ===== CONFIGURAÇÕES GLOBAIS =====
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_FOLDER = os.path.join(BASE_DIR, "downloads")
 FFMPEG_FOLDER = os.path.join(BASE_DIR, "ffmpeg")
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 os.makedirs(FFMPEG_FOLDER, exist_ok=True)
 
-# URL para baixar o FFmpeg para Windows (versão leve)
-FFMPEG_DOWNLOAD_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-FFMPEG_EXECUTABLE = os.path.join(FFMPEG_FOLDER, "bin", "ffmpeg.exe")
+# Detectar ambiente (Replit ou local)
+IN_REPLIT = os.environ.get('REPL_ID') is not None
 
+# Configurações dependentes do ambiente
+if IN_REPLIT:
+    FFMPEG_EXECUTABLE = os.path.expanduser("~/bin/ffmpeg")
+    MAX_STORAGE_MB = 300  # Limite mais restritivo para Replit
+else:
+    FFMPEG_DOWNLOAD_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+    FFMPEG_EXECUTABLE = os.path.join(FFMPEG_FOLDER, "bin", "ffmpeg.exe")
+    MAX_STORAGE_MB = 1000  # Limite mais generoso para uso local
+
+# ===== FUNÇÕES DE GERENCIAMENTO DE ARMAZENAMENTO =====
+def cleanup_downloads():
+    """
+    Limpa downloads antigos para manter o uso de armazenamento abaixo do limite.
+    Remove arquivos mais antigos primeiro, até atingir 80% do limite.
+    """
+    if not os.path.exists(DOWNLOAD_FOLDER):
+        return
+        
+    try:
+        # Coletar informações de tamanho e data de modificação
+        total_size = 0
+        files_by_time = []
+        
+        for file in os.listdir(DOWNLOAD_FOLDER):
+            file_path = os.path.join(DOWNLOAD_FOLDER, file)
+            if os.path.isfile(file_path):
+                file_size = os.path.getsize(file_path) / (1024 * 1024)  # MB
+                total_size += file_size
+                files_by_time.append((file_path, os.path.getmtime(file_path)))
+        
+        # Remover arquivos se espaço usado exceder o limite
+        if total_size > MAX_STORAGE_MB and files_by_time:
+            files_by_time.sort(key=lambda x: x[1])  # Ordenar por data (mais antigos primeiro)
+            
+            for file_path, _ in files_by_time:
+                if total_size <= MAX_STORAGE_MB * 0.8:  # Parar quando atingir 80% do limite
+                    break
+                    
+                file_size = os.path.getsize(file_path) / (1024 * 1024)
+                os.remove(file_path)
+                total_size -= file_size
+                print(f"Arquivo removido para liberar espaço: {file_path}")
+    except Exception as e:
+        print(f"Erro ao limpar downloads: {e}")
+
+# ===== FUNÇÕES DE GESTÃO DO FFMPEG =====
 def download_ffmpeg():
-    """Baixa e extrai o FFmpeg automaticamente"""
+    """
+    Baixa e configura o FFmpeg automaticamente.
+    Retorna True se bem-sucedido, False caso contrário.
+    """
+    # No Replit, a instalação é manual via script
+    if IN_REPLIT:
+        if os.path.exists(FFMPEG_EXECUTABLE):
+            print("FFmpeg já está instalado no Replit.")
+            return True
+        print("FFmpeg não encontrado no Replit. Execute o script install_ffmpeg.sh")
+        return False
+    
+    # Verificar se já está instalado localmente
     if os.path.exists(FFMPEG_EXECUTABLE):
         print("FFmpeg já está instalado localmente.")
         return True
@@ -32,7 +90,7 @@ def download_ffmpeg():
     try:
         print(f"Baixando FFmpeg de {FFMPEG_DOWNLOAD_URL}...")
         
-        # Limpar a pasta antes de baixar (caso haja uma instalação parcial)
+        # Limpar diretório para instalação limpa
         if os.path.exists(FFMPEG_FOLDER):
             try:
                 for file in os.listdir(FFMPEG_FOLDER):
@@ -44,21 +102,18 @@ def download_ffmpeg():
             except Exception as e:
                 print(f"Erro ao limpar pasta: {e}")
         
-        # Configurar sessão com timeout mais longo
+        # Configurar sessão de download com retentativas
         session = requests.Session()
         session.mount('https://', requests.adapters.HTTPAdapter(max_retries=3))
         
-        # Baixar com timeout mais longo
+        # Baixar arquivo
         response = session.get(FFMPEG_DOWNLOAD_URL, stream=True, timeout=60)
         response.raise_for_status()
         
-        # Obter o tamanho total do arquivo para a barra de progresso
         total_size = int(response.headers.get('content-length', 0))
-        
-        # Criar um buffer para armazenar o arquivo
         buffer = BytesIO()
         
-        # Mostrar o progresso do download
+        # Download com barra de progresso
         with tqdm(total=total_size, unit='B', unit_scale=True, desc="Baixando FFmpeg") as pbar:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
@@ -67,41 +122,32 @@ def download_ffmpeg():
         
         buffer.seek(0)
         
-        # Verificar se o download foi completo
-        if buffer.getbuffer().nbytes < 1000000:  # Menos de 1MB provavelmente significa erro
+        # Verificar integridade do download
+        if buffer.getbuffer().nbytes < 1000000:  # < 1MB provavelmente é erro
             print("Download incompleto. Arquivo muito pequeno.")
             return False
         
-        # Criar pasta temporária para extração
+        # Extrair arquivo
         print("Extraindo FFmpeg...")
         temp_extract = os.path.join(FFMPEG_FOLDER, "temp_extract")
         os.makedirs(temp_extract, exist_ok=True)
         
-        # Extrair o arquivo ZIP
         try:
             with zipfile.ZipFile(buffer) as zip_ref:
                 zip_ref.extractall(temp_extract)
             
-            # Identificar a pasta raiz extraída (geralmente contém "ffmpeg" no nome)
+            # Localizar pasta principal da extração
             extracted_folders = [f for f in os.listdir(temp_extract) if os.path.isdir(os.path.join(temp_extract, f))]
             
             if not extracted_folders:
                 print("Nenhuma pasta encontrada no arquivo extraído.")
                 return False
             
-            root_folder = None
-            for folder in extracted_folders:
-                if "ffmpeg" in folder.lower():
-                    root_folder = folder
-                    break
-            
-            if not root_folder:
-                root_folder = extracted_folders[0]  # Usar a primeira pasta se nenhuma contiver "ffmpeg"
-            
-            # Mover arquivos para a pasta ffmpeg
+            # Buscar pasta que contenha "ffmpeg" no nome, ou usar a primeira
+            root_folder = next((folder for folder in extracted_folders if "ffmpeg" in folder.lower()), extracted_folders[0])
             src_path = os.path.join(temp_extract, root_folder)
             
-            # Encontrar a pasta bin dentro da extração
+            # Localizar executáveis
             bin_folder = None
             for root, dirs, files in os.walk(src_path):
                 if "ffmpeg.exe" in files:
@@ -112,14 +158,10 @@ def download_ffmpeg():
                 print("FFmpeg executável não encontrado no arquivo baixado")
                 return False
             
-            # Verificar o caminho para bin_folder relativo a src_path
-            rel_path = os.path.relpath(bin_folder, src_path)
-            
-            # Criar pasta bin no destino final
+            # Copiar executáveis para destino final
             bin_dest = os.path.join(FFMPEG_FOLDER, "bin")
             os.makedirs(bin_dest, exist_ok=True)
             
-            # Copiar executáveis para pasta bin
             executables = ["ffmpeg.exe", "ffprobe.exe", "ffplay.exe"]
             for exe in executables:
                 if exe in os.listdir(bin_folder):
@@ -127,7 +169,7 @@ def download_ffmpeg():
                     dst_exe = os.path.join(bin_dest, exe)
                     shutil.copy2(src_exe, dst_exe)
             
-            # Limpar pasta temporária
+            # Limpar arquivos temporários
             shutil.rmtree(temp_extract)
             
             if os.path.exists(FFMPEG_EXECUTABLE):
@@ -136,11 +178,10 @@ def download_ffmpeg():
             else:
                 print("FFmpeg não encontrado após instalação")
                 return False
-        
+            
         except zipfile.BadZipFile:
             print("Arquivo ZIP inválido ou corrompido")
             return False
-        
         except Exception as e:
             print(f"Erro ao extrair FFmpeg: {str(e)}")
             return False
@@ -153,28 +194,33 @@ def download_ffmpeg():
         return False
 
 def is_ffmpeg_installed():
-    """Verifica se o FFmpeg está instalado no sistema ou localmente"""
-    # Verificar se temos a versão local
+    """
+    Verifica se o FFmpeg está disponível no sistema ou localmente.
+    Retorna True se encontrado e funcional, False caso contrário.
+    """
+    # Verificar instalação local
     if os.path.exists(FFMPEG_EXECUTABLE):
         try:
-            # Testar se o executável é válido
-            result = subprocess.run([FFMPEG_EXECUTABLE, "-version"], 
-                                   stdout=subprocess.PIPE, 
-                                   stderr=subprocess.PIPE,
-                                   timeout=5)
+            result = subprocess.run(
+                [FFMPEG_EXECUTABLE, "-version"], 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE,
+                timeout=5
+            )
             if result.returncode == 0:
                 print(f"FFmpeg local encontrado e funcionando em {FFMPEG_EXECUTABLE}")
                 return True
         except Exception as e:
             print(f"FFmpeg local encontrado mas com erro: {e}")
-            # Continua para verificar a versão do sistema
     
-    # Verificar se está disponível no sistema
+    # Verificar instalação no sistema
     try:
-        result = subprocess.run(["ffmpeg", "-version"], 
-                               stdout=subprocess.PIPE, 
-                               stderr=subprocess.PIPE,
-                               timeout=5)
+        result = subprocess.run(
+            ["ffmpeg", "-version"], 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE,
+            timeout=5
+        )
         if result.returncode == 0:
             print("FFmpeg encontrado no sistema")
             return True
@@ -189,6 +235,7 @@ def get_ffmpeg_path():
         return FFMPEG_EXECUTABLE
     return 'ffmpeg'  # Usar o FFmpeg do sistema, se disponível
 
+# ===== FUNÇÕES DE UTILIDADE =====
 def sanitize_filename(title):
     """Remove caracteres inválidos do nome do arquivo"""
     cleaned_title = re.sub(r'[\\/*?:"<>|\'.,!]', "", title)
@@ -197,11 +244,13 @@ def sanitize_filename(title):
     return cleaned_title.strip('.')
 
 def format_file_size(size_bytes):
-    """Formata o tamanho do arquivo de bytes para uma unidade legível"""
+    """
+    Formata o tamanho do arquivo de bytes para uma unidade legível (KB, MB, GB).
+    Retorna string formatada.
+    """
     if size_bytes is None or size_bytes == 0:
         return "Desconhecido"
     
-    # Converte para KB, MB, GB conforme necessário
     size_kb = size_bytes / 1024
     if size_kb < 1000:
         return f"{size_kb:.1f} KB"
@@ -213,9 +262,14 @@ def format_file_size(size_bytes):
     size_gb = size_mb / 1024
     return f"{size_gb:.2f} GB"
 
+# ===== ROTAS DA APLICAÇÃO =====
 @app.route('/')
 def homepage():
-    # Tentar baixar o FFmpeg automaticamente se não estiver instalado
+    """Página inicial da aplicação"""
+    # Garantir espaço disponível
+    cleanup_downloads()
+    
+    # Verificar disponibilidade do FFmpeg
     if not is_ffmpeg_installed():
         download_ffmpeg()
     
@@ -224,6 +278,10 @@ def homepage():
 
 @app.route('/get_video_info', methods=['POST'])
 def get_video_info():
+    """
+    Obtém informações de um vídeo ou playlist do YouTube.
+    Retorna dados como título, miniaturas, formatos disponíveis.
+    """
     url = request.form.get("url")
     
     if not url:
@@ -240,9 +298,8 @@ def get_video_info():
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             
-            # Verifica se é uma playlist
+            # Verificar se é uma playlist
             if 'entries' in info:
-                # Retorna informações da playlist
                 return jsonify({
                     "is_playlist": True,
                     "title": info.get('title', 'Playlist'),
@@ -251,11 +308,11 @@ def get_video_info():
                     "ffmpeg_available": is_ffmpeg_installed()
                 })
             
-            # É um vídeo único
+            # Processar vídeo único
             formats = []
             ffmpeg_available = is_ffmpeg_installed()
             
-            # Primeiro adicionar formatos progressivos (com áudio e vídeo juntos)
+            # Processar formatos progressivos (áudio+vídeo juntos)
             progressive_formats = []
             for f in info['formats']:
                 if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
@@ -271,28 +328,28 @@ def get_video_info():
                             'is_progressive': True
                         })
             
-            # Adicionar formatos de alta resolução apenas se o FFmpeg estiver disponível
+            # Processar formatos de alta resolução (se FFmpeg disponível)
             video_only_formats = []
             if ffmpeg_available:
+                # Encontrar o melhor formato de áudio
                 best_audio = None
                 for f in info['formats']:
                     if f.get('acodec') != 'none' and f.get('vcodec') == 'none':
-                        # Obtenha o valor tbr, usando 0 se for None
-                        current_tbr = f.get('tbr', 0) or 0  # Garante que None seja convertido para 0
-                        best_tbr = best_audio.get('tbr', 0) or 0 if best_audio else 0  # Garante que None seja convertido para 0
+                        current_tbr = f.get('tbr', 0) or 0
+                        best_tbr = best_audio.get('tbr', 0) or 0 if best_audio else 0
                         
                         if best_audio is None or current_tbr > best_tbr:
                             best_audio = f
                 
+                # Combinar com formatos de vídeo
                 if best_audio:
                     for f in info['formats']:
                         if f.get('vcodec') != 'none' and f.get('acodec') == 'none':
                             height = f.get('height', 0)
                             if height > 0:
                                 format_id = f"{f['format_id']}+{best_audio['format_id']}"
-                                # Calcular tamanho total com segurança
-                                video_size = f.get('filesize', 0) or 0  # Converte None para 0
-                                audio_size = best_audio.get('filesize', 0) or 0  # Converte None para 0
+                                video_size = f.get('filesize', 0) or 0
+                                audio_size = best_audio.get('filesize', 0) or 0
                                 total_size = video_size + audio_size
                                 
                                 video_only_formats.append({
@@ -305,13 +362,11 @@ def get_video_info():
                                     'is_progressive': False
                                 })
             
-            # Combinar todos os formatos
+            # Combinar e classificar formatos
             formats = progressive_formats + video_only_formats
-            
-            # Ordenar por resolução (maior primeiro)
             formats.sort(key=lambda x: int(x['resolution'][:-1]), reverse=True)
             
-            # Remover duplicatas de resolução, priorizando formatos progressivos
+            # Remover duplicatas de resolução (priorizar formatos progressivos)
             unique_formats = {}
             for fmt in formats:
                 resolution = fmt['resolution']
@@ -321,7 +376,7 @@ def get_video_info():
             formats = list(unique_formats.values())
             formats.sort(key=lambda x: int(x['resolution'][:-1]), reverse=True)
             
-            # Preparar dicionários para retornar
+            # Formatar para resposta
             resolutions = {}
             resolutions_info = {}
             for fmt in formats:
@@ -352,6 +407,13 @@ def get_video_info():
 
 @app.route('/download', methods=['POST'])
 def download_video():
+    """
+    Baixa um vídeo único do YouTube no formato especificado.
+    Retorna o arquivo para download pelo navegador.
+    """
+    # Limpar downloads antigos para garantir espaço
+    cleanup_downloads()
+    
     url = request.form.get("url")
     format_id = request.form.get("itag")  # Mantemos "itag" para compatibilidade
     
@@ -359,19 +421,17 @@ def download_video():
         return "Parâmetros inválidos!", 400
 
     try:
-        # Verifica se o formato requer FFmpeg
+        # Verificar requisitos de FFmpeg
         if "+" in format_id and not is_ffmpeg_installed():
-            # Tentar baixar automaticamente
             if not download_ffmpeg():
                 return "Este formato requer FFmpeg para mesclar áudio e vídeo. Por favor, escolha uma resolução mais baixa.", 400
 
-        # Obtém informações do vídeo primeiro
+        # Obter informações e configurar download
         with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
             info = ydl.extract_info(url, download=False)
             title = sanitize_filename(info['title'])
             output_path = os.path.join(DOWNLOAD_FOLDER, f"{title}.mp4")
             
-            # Configurações avançadas para o download
             ydl_opts = {
                 'format': format_id,
                 'outtmpl': output_path,
@@ -386,13 +446,15 @@ def download_video():
                 }]
             }
             
-            # Se tivermos o FFmpeg local, configurá-lo
+            # Configurar FFmpeg se disponível
             if os.path.exists(FFMPEG_EXECUTABLE):
                 ydl_opts['ffmpeg_location'] = os.path.dirname(FFMPEG_EXECUTABLE)
             
+            # Realizar download
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
             
+            # Entregar arquivo
             if os.path.exists(output_path):
                 return send_file(output_path, as_attachment=True, download_name=f"{title}.mp4")
             else:
@@ -404,20 +466,26 @@ def download_video():
 
 @app.route('/download_playlist', methods=['POST'])
 def download_playlist():
+    """
+    Baixa uma playlist completa do YouTube na qualidade especificada.
+    Organiza os vídeos em pastas por playlist.
+    """
+    # Limpar downloads antigos para garantir espaço
+    cleanup_downloads()
+    
     url = request.form.get("url")
     quality = request.form.get("quality", "best")
     
     if not url:
         return "URL inválida!", 400
 
-    # Verifica se a qualidade requer FFmpeg
+    # Verificar requisitos de FFmpeg para alta qualidade
     if int(quality) > 720 and not is_ffmpeg_installed():
-        # Tentar baixar automaticamente
         if not download_ffmpeg():
             return "Qualidades acima de 720p requerem FFmpeg. Por favor, escolha uma qualidade menor.", 400
 
     try:
-        # Configurações para o download de playlist
+        # Configurar download da playlist
         ydl_opts = {
             'format': f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]',
             'outtmpl': os.path.join(DOWNLOAD_FOLDER, 'playlist/%(playlist_title)s/%(title)s.%(ext)s'),
@@ -427,13 +495,14 @@ def download_playlist():
             'nooverwrites': True
         }
         
-        # Se tivermos o FFmpeg local, configurá-lo
+        # Configurar FFmpeg se disponível
         if os.path.exists(FFMPEG_EXECUTABLE):
             ydl_opts['ffmpeg_location'] = os.path.dirname(FFMPEG_EXECUTABLE)
-        # Se não tiver FFmpeg, ajusta o formato para evitar mesclagem
         elif not is_ffmpeg_installed():
+            # Usar formato progressivo se FFmpeg não estiver disponível
             ydl_opts['format'] = f'best[height<={quality}]'
         
+        # Realizar download
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
             
@@ -445,23 +514,54 @@ def download_playlist():
 
 @app.route('/install-instructions', methods=['GET'])
 def install_instructions():
+    """Página com instruções para instalar o FFmpeg"""
     return render_template('install_ffmpeg.html')
 
 @app.route('/check-ffmpeg', methods=['GET'])
 def check_ffmpeg():
-    """Verifica o status do FFmpeg e inicia o download se necessário"""
+    """
+    Verifica o status do FFmpeg e tenta instalá-lo se necessário.
+    Retorna o status atual em formato JSON.
+    """
     if is_ffmpeg_installed():
         return jsonify({"status": "available", "message": "FFmpeg está instalado e pronto para uso."})
     
-    # Tenta baixar automaticamente
+    # Tentar instalação
     success = download_ffmpeg()
     if success:
         return jsonify({"status": "installed", "message": "FFmpeg foi baixado e configurado com sucesso!"})
     else:
         return jsonify({"status": "failed", "message": "Falha ao baixar o FFmpeg automaticamente."})
 
+@app.route('/storage-info', methods=['GET'])
+def storage_info():
+    """
+    Retorna informações sobre o armazenamento usado pelo aplicativo.
+    Útil para monitorar limites no Replit.
+    """
+    try:
+        total_size = 0
+        file_count = 0
+        
+        for root, dirs, files in os.walk(DOWNLOAD_FOLDER):
+            for file in files:
+                file_path = os.path.join(root, file)
+                if os.path.exists(file_path):
+                    total_size += os.path.getsize(file_path)
+                    file_count += 1
+        
+        return jsonify({
+            "used_mb": round(total_size / (1024 * 1024), 2),
+            "limit_mb": MAX_STORAGE_MB,
+            "file_count": file_count,
+            "percentage": round((total_size / (1024 * 1024) / MAX_STORAGE_MB) * 100, 2)
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ===== INICIALIZAÇÃO DA APLICAÇÃO =====
 if __name__ == '__main__':
-    # Tentar baixar o FFmpeg na inicialização, se necessário
+    # Verificar FFmpeg na inicialização
     if not is_ffmpeg_installed():
         print("FFmpeg não encontrado. Tentando baixar automaticamente...")
         if download_ffmpeg():
@@ -471,4 +571,7 @@ if __name__ == '__main__':
     
     ffmpeg_status = "disponível" if is_ffmpeg_installed() else "não encontrado"
     print(f"Status do FFmpeg: {ffmpeg_status}")
-    app.run(debug=True)
+    
+    # Configurar porta e iniciar servidor
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port, debug=False)

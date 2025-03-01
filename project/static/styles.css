@@ -68,6 +68,10 @@ h1 {
 
 form {
     margin-bottom: 1.5rem;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
 input[type="text"] {
@@ -80,6 +84,9 @@ input[type="text"] {
     color: #f8fafc;
     font-size: 1rem;
     transition: all 0.3s ease;
+    box-sizing: border-box;
+    max-width: 100%;
+    overflow: visible;
 }
 
 input[type="text"]:focus {
@@ -278,6 +285,10 @@ select:focus {
     h1 {
         font-size: 1.8rem;
     }
+    
+    #videoForm {
+        max-width: 100%;
+    }
 }
 
 /* Status do FFmpeg */
@@ -400,4 +411,38 @@ select option:disabled {
     padding: 5px 10px;
     background-color: #3b82f6;
     font-size: 0.8rem;
+}
+
+#videoForm {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto 1.5rem;
+}
+
+#videoForm label {
+    align-self: flex-start;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+.search-btn {
+    max-width: 250px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.url-input-container {
+    width: 100%;
+    position: relative;
+}
+
+#videoUrl {
+    display: block;
+    width: 100%;
+    text-overflow: ellipsis;
 }

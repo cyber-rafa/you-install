@@ -7,6 +7,8 @@
     <link rel="shortcut icon" href="{{ url_for('static', filename='ico.png') }}" type="image/png">
     <link rel="icon" href="{{ url_for('static', filename='ico.png') }}" type="image/png">
     <title>Download de Vídeos</title>
+    <script src="{{ url_for('static', filename='favicon-animation.js') }}"></script>
+    <script src="{{ url_for('static', filename='loading-animation.js') }}"></script>
 </head>
 <body>
     <div class="container">
@@ -26,7 +28,6 @@
             </div>
         </div>
         
-        <!-- Modal de progresso de download -->
         <div id="download-modal" class="modal" style="display: none;">
             <div class="modal-content">
                 <h3>Baixando FFmpeg</h3>
@@ -40,11 +41,15 @@
 
         <form id="videoForm">
             <label for="url">Insira a URL do vídeo ou playlist:</label>
-            <input type="text" id="url" name="url" required placeholder="https://www.youtube.com/watch?v=...">
-            <button type="button" onclick="fetchVideoInfo()">Buscar Informações</button>
+            <div class="url-input-container">
+                <input type="text" id="url" name="url" required placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+            </div>
+            <button type="button" onclick="fetchVideoInfo()" class="search-btn">
+                <span class="btn-text">Buscar Informações</span>
+                <span class="btn-icon">🔍</span>
+            </button>
         </form>
 
-        <!-- Informações do vídeo -->
         <div id="videoInfo" style="display: none;">
             <div class="video-details">
                 <div class="thumbnail-container">
@@ -58,7 +63,6 @@
             </div>
         </div>
 
-        <!-- Qualidade do vídeo -->
         <div id="qualitySection" style="display: none;">
             <h2>Escolha a Qualidade</h2>
             <form id="downloadForm">
@@ -75,11 +79,13 @@
                         <li>Download rápido e direto</li>
                     </ul>
                 </div>
-                <button type="submit" class="download-btn">Baixar Vídeo</button>
+                <button type="submit" class="download-btn">
+                    <span class="btn-icon">⬇️</span>
+                    <span class="btn-text">Baixar Vídeo</span>
+                </button>
             </form>
         </div>
 
-        <!-- Seção de playlist -->
         <div id="playlistSection" style="display: none;">
             <h2>Informações da Playlist</h2>
             <div class="playlist-info">
@@ -98,7 +104,10 @@
                     </select>
                 </div>
                 <p class="warning">Atenção: Baixar uma playlist completa pode levar tempo e ocupar bastante espaço em disco.</p>
-                <button type="submit" class="download-btn">Baixar Playlist</button>
+                <button type="submit" class="download-btn">
+                    <span class="btn-icon">📋⬇️</span>
+                    <span class="btn-text">Baixar Playlist</span>
+                </button>
             </form>
         </div>
 
@@ -106,41 +115,73 @@
     </div>
 
     <script>
-        // Inicialização - Verificar o botão de download do FFmpeg
         document.addEventListener('DOMContentLoaded', function() {
             const downloadBtn = document.getElementById('download-ffmpeg-btn');
             if (downloadBtn) {
                 downloadBtn.addEventListener('click', downloadFFmpeg);
             }
             
-            // Adicionar evento de tecla para voltar à pesquisa
             document.addEventListener('keydown', function(event) {
-                // Se pressionar ESC, volta para o formulário de pesquisa
                 if (event.key === 'Escape') {
                     resetSearch();
                 }
             });
+            
+            addFormAnimations();
         });
         
-        // Função para resetar a busca e mostrar o formulário inicial
+        function addFormAnimations() {
+            const searchInput = document.getElementById('url');
+            
+            searchInput.addEventListener('focus', function() {
+                this.parentElement.classList.add('active-form');
+            });
+            
+            searchInput.addEventListener('blur', function() {
+                if (!this.value) {
+                    this.parentElement.classList.remove('active-form');
+                }
+            });
+            
+            searchInput.addEventListener('input', function() {
+                if (this.value) {
+                    this.classList.add('has-content');
+                } else {
+                    this.classList.remove('has-content');
+                }
+            });
+            
+            document.querySelectorAll('button').forEach(button => {
+                button.addEventListener('click', function(e) {
+                    const ripple = document.createElement('span');
+                    ripple.classList.add('ripple-effect');
+                    this.appendChild(ripple);
+                    
+                    const x = e.clientX - e.target.getBoundingClientRect().left;
+                    const y = e.clientY - e.target.getBoundingClientRect().top;
+                    ripple.style.left = `${x}px`;
+                    ripple.style.top = `${y}px`;
+                    
+                    setTimeout(() => {
+                        ripple.remove();
+                    }, 600);
+                });
+            });
+        }
+        
         function resetSearch() {
-            // Limpar o campo de URL
             document.getElementById("url").value = "";
             
-            // Esconder as seções de resultado
             document.getElementById("videoInfo").style.display = "none";
             document.getElementById("qualitySection").style.display = "none";
             document.getElementById("playlistSection").style.display = "none";
             document.getElementById("status").style.display = "none";
             
-            // Mostrar formulário de entrada
             document.getElementById("videoForm").style.display = "block";
             
-            // Dar foco ao campo de URL
             document.getElementById("url").focus();
         }
         
-        // Função para baixar FFmpeg automaticamente
         function downloadFFmpeg() {
             const modal = document.getElementById('download-modal');
             const progressBar = document.getElementById('download-progress');
@@ -150,7 +191,6 @@
             statusText.textContent = 'Iniciando download do FFmpeg...';
             progressBar.style.width = '5%';
             
-            // Chamar a API para baixar FFmpeg
             fetch('/check-ffmpeg')
                 .then(response => response.json())
                 .then(data => {
@@ -159,7 +199,6 @@
                         statusText.textContent = 'FFmpeg instalado com sucesso!';
                         
                         setTimeout(() => {
-                            // Recarregar a página para atualizar o status
                             window.location.reload();
                         }, 2000);
                     } else {
@@ -190,133 +229,197 @@
                 return `${minutes}:${secs.toString().padStart(2, '0')}`;
             }
         }
-        
-        function formatViewCount(count) {
-            if (count >= 1000000) {
-                return (count / 1000000).toFixed(1) + 'M';
-            } else if (count >= 1000) {
-                return (count / 1000).toFixed(1) + 'K';
-            }
-            return count;
+
+        function formatNumber(num) {
+            return new Intl.NumberFormat('pt-BR').format(num);
         }
-        
+
         function updateStatus(message, isError = false) {
-            const status = document.getElementById("status");
-            status.textContent = message;
-            status.style.display = "block";
-            status.className = isError ? "status-message error" : "status-message";
+            const statusElement = document.getElementById("status");
+            statusElement.textContent = message;
+            statusElement.style.display = "block";
+            statusElement.className = "status-message" + (isError ? " error" : " success");
+        }
+
+        function showLoadingAnimation() {
+            const searchButton = document.querySelector("#videoForm button");
+            searchButton.disabled = true;
+            searchButton.innerHTML = '<span class="btn-loading-spinner"></span>';
+            searchButton.classList.add('loading');
+        }
+
+        function hideLoadingAnimation() {
+            const searchButton = document.querySelector("#videoForm button");
+            searchButton.disabled = false;
+            searchButton.innerHTML = '<span class="btn-text">Buscar Informações</span><span class="btn-icon">🔍</span>';
+            searchButton.classList.remove('loading');
         }
 
         function fetchVideoInfo() {
-            const url = document.getElementById("url").value;
+            const url = document.getElementById("url").value.trim();
             if (!url) {
-                updateStatus("Por favor, insira uma URL", true);
+                updateStatus("Por favor, insira uma URL válida", true);
                 return;
             }
-            
-            updateStatus("Buscando informações...");
+
+            showLoadingAnimation();
+            updateStatus("Buscando informações do vídeo...");
 
             fetch("/get_video_info", {
                 method: "POST",
                 body: new URLSearchParams({ url: url }),
                 headers: { "Content-Type": "application/x-www-form-urlencoded" }
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    updateStatus("Erro: " + data.error, true);
-                    return;
-                }
-                
-                // Resetar tudo
-                document.getElementById("qualitySection").style.display = "none";
-                document.getElementById("playlistSection").style.display = "none";
-                document.getElementById("videoInfo").style.display = "none";
-                
-                // Verificar se é uma playlist
-                if (data.is_playlist) {
-                    displayPlaylistInfo(data, url);
-                } else {
-                    displayVideoInfo(data, url);
-                }
-                
-                updateStatus(""); // Limpa status
-                document.getElementById("status").style.display = "none";
-            })
-            .catch(error => {
-                console.error("Erro:", error);
-                updateStatus("Erro ao buscar informações", true);
-            });
+                .then(response => {
+                    if (!response.ok) {
+                        return response.text().then(text => {
+                            throw new Error(text || "Erro ao buscar informações do vídeo");
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    hideLoadingAnimation();
+                    console.log("Dados recebidos:", data);
+                    
+                    document.getElementById("status").style.display = "none";
+                    
+                    if (data.type === "video" || (!data.type && !data.is_playlist)) {
+                        displayVideoInfo(data);
+                    } else if (data.type === "playlist" || data.is_playlist) {
+                        displayPlaylistInfo(data);
+                    }
+                })
+                .catch(error => {
+                    hideLoadingAnimation();
+                    console.error("Erro:", error);
+                    updateStatus("Erro: " + error.message, true);
+                });
         }
-        
-        function displayVideoInfo(data, url) {
-            // Exibir informações do vídeo
-            document.getElementById("videoTitle").textContent = data.title;
-            document.getElementById("videoThumbnail").src = data.thumbnail;
-            document.getElementById("videoUploader").textContent = data.uploader;
-            document.getElementById("videoViews").textContent = formatViewCount(data.view_count);
-            document.getElementById("videoDuration").textContent = formatDuration(data.duration);
+
+        function displayVideoInfo(data) {
+            document.getElementById("videoTitle").textContent = data.title || "Sem título";
+            document.getElementById("videoThumbnail").src = data.thumbnail || "";
+            document.getElementById("videoUploader").textContent = data.uploader || "Desconhecido";
+            document.getElementById("videoViews").textContent = formatNumber(data.view_count || 0);
+            document.getElementById("videoDuration").textContent = formatDuration(data.duration || 0);
+            
             document.getElementById("videoInfo").style.display = "block";
             
-            // Configurar opções de qualidade
+            document.getElementById("downloadUrl").value = data.url || url.value;
+            
             const qualitySelect = document.getElementById("qualitySelect");
             qualitySelect.innerHTML = "";
-            const qualityInfo = document.getElementById("qualityInfo");
             
-            for (const [res, itag] of Object.entries(data.resolutions)) {
-                const option = document.createElement("option");
-                option.value = itag;
-                option.textContent = res;
-                
-                // Marcar as resoluções que requerem FFmpeg
-                const info = data.resolutions_info[res];
-                if (info.requires_ffmpeg) {
-                    if (!data.ffmpeg_available) {
-                        // Se não tiver FFmpeg, desabilitar as resoluções altas
-                        option.disabled = true;
-                        option.textContent = res + " (Requer FFmpeg)";
-                    } else {
-                        option.textContent = res + " (Alta qualidade)";
+            if (data.formats && Array.isArray(data.formats)) {
+                data.formats.forEach(format => {
+                    const option = document.createElement("option");
+                    option.value = format.itag;
+                    
+                    let label = `${format.resolution}${format.fps > 30 ? ' (' + format.fps + 'fps)' : ''}`;
+                    if (format.size) {
+                        label += ` - ${format.size}`;
                     }
-                }
+                    
+                    option.textContent = label;
+                    option.dataset.info = JSON.stringify(format);
+                    qualitySelect.appendChild(option);
+                });
+            } else if (data.resolutions && typeof data.resolutions === 'object') {
+                const resolutions = data.resolutions;
+                const resInfo = data.resolutions_info || {};
                 
+                Object.keys(resolutions).forEach(resolution => {
+                    const formatId = resolutions[resolution];
+                    const info = resInfo[resolution] || {};
+                    
+                    const option = document.createElement("option");
+                    option.value = formatId;
+                    
+                    let label = resolution;
+                    if (info.fps && info.fps > 30) {
+                        label += ` (${info.fps}fps)`;
+                    }
+                    if (info.filesize) {
+                        label += ` - ${info.filesize}`;
+                    }
+                    
+                    option.textContent = label;
+                    
+                    const formatInfo = {
+                        resolution: resolution,
+                        fps: info.fps || 0,
+                        vcodec: info.requires_ffmpeg ? "Separado (requer FFmpeg)" : "Integrado",
+                        size: info.filesize || "Desconhecido"
+                    };
+                    
+                    option.dataset.info = JSON.stringify(formatInfo);
+                    qualitySelect.appendChild(option);
+                });
+            } else {
+                const option = document.createElement("option");
+                option.value = "best";
+                option.textContent = "Melhor qualidade disponível";
+                option.dataset.info = JSON.stringify({
+                    resolution: "Auto",
+                    fps: 0,
+                    vcodec: "Auto",
+                    size: "Desconhecido"
+                });
                 qualitySelect.appendChild(option);
             }
             
-            // Mostrar informações da qualidade selecionada
             qualitySelect.addEventListener("change", function() {
-                const selectedRes = this.options[this.selectedIndex].textContent.split(' ')[0];
-                const info = data.resolutions_info[selectedRes];
-                if (info) {
-                    let infoText = `<span>Tamanho: ${info.filesize}</span><span>FPS: ${info.fps || "desconhecido"}</span>`;
+                const selectedOption = this.options[this.selectedIndex];
+                if (!selectedOption || !selectedOption.dataset.info) return;
+                
+                try {
+                    const formatInfo = JSON.parse(selectedOption.dataset.info);
                     
-                    if (info.requires_ffmpeg) {
-                        infoText += `<span class="high-quality-badge">Alta qualidade</span>`;
-                    }
-                    
-                    qualityInfo.innerHTML = infoText;
+                    const qualityInfo = document.getElementById("qualityInfo");
+                    qualityInfo.innerHTML = `
+                        <div class="info-item"><span>Resolução:</span> ${formatInfo.resolution}</div>
+                        <div class="info-item"><span>FPS:</span> ${formatInfo.fps}</div>
+                        <div class="info-item"><span>Codec:</span> ${formatInfo.vcodec}</div>
+                        <div class="info-item"><span>Tamanho:</span> ${formatInfo.size || "Desconhecido"}</div>
+                    `;
+                } catch (e) {
+                    console.error("Erro ao processar informações de formato:", e);
                 }
             });
             
-            // Disparar o evento para mostrar informações da primeira opção
-            qualitySelect.dispatchEvent(new Event("change"));
+            if (qualitySelect.options.length > 0) {
+                qualitySelect.dispatchEvent(new Event("change"));
+            }
             
-            document.getElementById("downloadUrl").value = url;
             document.getElementById("qualitySection").style.display = "block";
+            
+            document.getElementById("playlistSection").style.display = "none";
         }
-        
-        function displayPlaylistInfo(data, url) {
+
+        function displayPlaylistInfo(data) {
+            document.getElementById("qualitySection").style.display = "none";
+            
+            document.getElementById("videoInfo").style.display = "block";
+            document.getElementById("videoTitle").textContent = "Playlist: " + data.title;
+            document.getElementById("videoThumbnail").src = data.thumbnail;
+            document.getElementById("videoUploader").textContent = data.uploader || "YouTube";
+            document.getElementById("videoViews").textContent = "";
+            document.getElementById("videoDuration").textContent = "";
+            
             document.getElementById("playlistTitle").textContent = data.title;
             document.getElementById("playlistCount").textContent = data.video_count;
-            document.getElementById("playlistUrl").value = url;
+            document.getElementById("playlistUrl").value = data.url;
+            
             document.getElementById("playlistSection").style.display = "block";
         }
 
         document.getElementById("downloadForm").addEventListener("submit", function(event) {
             event.preventDefault();
             const formData = new FormData(this);
-            updateStatus("Iniciando download...");
-
+            
+            startLoading("Baixando vídeo...");
+            
             fetch("/download", {
                 method: "POST",
                 body: formData
@@ -327,7 +430,7 @@
                         throw new Error(text || "Erro no download");
                     });
                 }
-                updateStatus("Preparando arquivo para download...");
+                updateLoading(70, "Preparando arquivo para download...");
                 return response.blob();
             })
             .then(blob => {
@@ -336,16 +439,21 @@
                 a.href = url;
                 a.download = document.getElementById("videoTitle").textContent + ".mp4";
                 document.body.appendChild(a);
-                a.click();
-                a.remove();
-                updateStatus("Download concluído!");
                 
-                // Após 3 segundos, limpar formulário para nova busca
+                updateLoading(90, "Iniciando download...");
                 setTimeout(() => {
-                    resetSearch();
-                }, 3000);
+                    a.click();
+                    a.remove();
+                    stopLoading();
+                    updateStatus("Download concluído!");
+                    
+                    setTimeout(() => {
+                        resetSearch();
+                    }, 3000);
+                }, 500);
             })
             .catch(error => {
+                stopLoading();
                 console.error("Erro:", error);
                 updateStatus("Erro: " + error.message, true);
             });
@@ -354,7 +462,9 @@
         document.getElementById("playlistForm").addEventListener("submit", function(event) {
             event.preventDefault();
             const formData = new FormData(this);
-            updateStatus("Iniciando download da playlist...");
+            
+            startLoading("Iniciando download da playlist...");
+            updateLoading(10, "Este processo pode levar algum tempo para playlists grandes");
 
             fetch("/download_playlist", {
                 method: "POST",
@@ -369,18 +479,109 @@
                 return response.text();
             })
             .then(text => {
+                stopLoading();
                 updateStatus("Playlist sendo baixada! Os vídeos serão salvos na pasta 'downloads/playlist'");
                 
-                // Após 3 segundos, limpar formulário para nova busca
                 setTimeout(() => {
                     resetSearch();
                 }, 3000);
             })
             .catch(error => {
+                stopLoading();
                 console.error("Erro:", error);
                 updateStatus("Erro: " + error.message, true);
             });
         });
+        
+        (function() {
+            const style = document.createElement('style');
+            style.textContent = `
+                button {
+                    position: relative;
+                    overflow: hidden;
+                }
+                
+                .ripple-effect {
+                    position: absolute;
+                    border-radius: 50%;
+                    background-color: rgba(255, 255, 255, 0.7);
+                    width: 100px;
+                    height: 100px;
+                    margin-top: -50px;
+                    margin-left: -50px;
+                    animation: ripple 0.6s;
+                    opacity: 0;
+                }
+                
+                @keyframes ripple {
+                    0% {
+                        transform: scale(0);
+                        opacity: 0.5;
+                    }
+                    100% {
+                        transform: scale(4);
+                        opacity: 0;
+                    }
+                }
+                
+                button.loading {
+                    background-color: #0056b3 !important;
+                    cursor: wait;
+                }
+                
+                .btn-loading-spinner {
+                    display: inline-block;
+                    width: 24px;
+                    height: 24px;
+                    border: 3px solid rgba(255, 255, 255, 0.3);
+                    border-radius: 50%;
+                    border-top-color: white;
+                    animation: spin 1s linear infinite;
+                }
+                
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+                
+                .loading-dots span {
+                    animation: loadingDots 1.4s infinite ease-in-out both;
+                    opacity: 0.8;
+                }
+                
+                .loading-dots span:nth-child(1) {
+                    animation-delay: 0s;
+                }
+                
+                .loading-dots span:nth-child(2) {
+                    animation-delay: 0.2s;
+                }
+                
+                .loading-dots span:nth-child(3) {
+                    animation-delay: 0.4s;
+                }
+                
+                @keyframes loadingDots {
+                    0%, 80%, 100% { 
+                        transform: scale(0.8); 
+                    }
+                    40% { 
+                        transform: scale(1.2); 
+                    }
+                }
+                
+                .active-form {
+                    transform: scale(1.02);
+                    transition: all 0.3s ease;
+                }
+                
+                input.has-content {
+                    border-color: #4CAF50 !important;
+                    box-shadow: 0 0 5px rgba(76, 175, 80, 0.5) !important;
+                }
+            `;
+            document.head.appendChild(style);
+        })();
     </script>
 
 </body>

@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <title>Como Instala FFmpeg</title>
+    <style>
+        .instruction-step {
+            background-color: rgba(30, 41, 59, 0.7);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 4px solid #38bdf8;
+        }
+        
+        .step-number {
+            display: inline-block;
+            background-color: #38bdf8;
+            color: white;
+            width: 30px;
+            height: 30px;
+            text-align: center;
+            line-height: 30px;
+            border-radius: 50%;
+            font-weight: bold;
+            margin-right: 10px;
+            font-size: 16px;
+        }
+        
+        .step-title {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .download-option {
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: rgba(56, 189, 248, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .download-btn-ffmpeg {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 6px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s;
+            font-size: 0.9rem;
+        }
+        
+        .download-btn-ffmpeg:hover {
+            background-color: #2563eb;
+        }
+        
+        .terminal-command {
+            background-color: #111827;
+            color: #e2e8f0;
+            padding: 12px 15px;
+            border-radius: 6px;
+            font-family: monospace;
+            margin: 10px 0;
+            overflow-x: auto;
+            white-space: pre;
+        }
+        
+        img {
+            max-width: 100%;
+            border-radius: 6px;
+            margin: 15px 0;
+            border: 3px solid rgba(56, 189, 248, 0.3);
+        }
+        
+        .return-home {
+            margin-top: 30px;
+            text-align: center;
+        }
+        
+        .return-home a {
+            color: #38bdf8;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .return-home a:hover {
+            color: #0ea5e9;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Como Instalar o FFmpeg</h1>
+        
+        <p class="info-message">
+            O FFmpeg é um software gratuito e de código aberto usado para processar arquivos multimídia. 
+            É necessário para baixar vídeos do YouTube em alta resolução (acima de 720p) e combiná-los 
+            com áudio de alta qualidade.
+        </p>
+        
+        <div class="instruction-step">
+            <div class="step-title">
+                <span class="step-number">1</span>
+                Baixar o FFmpeg para Windows
+            </div>
+            <p>Existem duas formas principais de instalar o FFmpeg:</p>
+            
+            <div class="download-option">
+                <div>
+                    <strong>Opção 1: Baixar a versão pré-compilada (Recomendado)</strong>
+                    <p>Baixe a versão mais recente do FFmpeg do site oficial.</p>
+                </div>
+                <a href="https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-full.7z" class="download-btn-ffmpeg">Baixar FFmpeg</a>
+            </div>
+            
+            <div class="download-option">
+                <div>
+                    <strong>Opção 2: Usar o gerenciador de pacotes Chocolatey</strong>
+                    <p>Se você já tem o Chocolatey instalado, pode usar este método.</p>
+                </div>
+                <div class="terminal-command">choco install ffmpeg</div>
+            </div>
+        </div>
+        
+        <div class="instruction-step">
+            <div class="step-title">
+                <span class="step-number">2</span>
+                Extrair o arquivo baixado (para Opção 1)
+            </div>
+            <p>
+                Depois de baixar o arquivo .7z, você precisa extraí-lo. Para isso, você pode usar 
+                o <a href="https://www.7-zip.org/download.html" target="_blank" style="color: #38bdf8;">7-Zip</a>
+                ou outro programa de descompactação.
+            </p>
+            <ol>
+                <li>Clique com o botão direito no arquivo baixado</li>
+                <li>Selecione "Extrair aqui" ou "Extrair para ffmpeg\"</li>
+                <li>Aguarde a conclusão da extração</li>
+            </ol>
+        </div>
+        
+        <div class="instruction-step">
+            <div class="step-title">
+                <span class="step-number">3</span>
+                Adicionar o FFmpeg ao PATH do sistema
+            </div>
+            <p>
+                Para que o aplicativo possa encontrar o FFmpeg, você precisa adicioná-lo à variável de ambiente PATH do Windows:
+            </p>
+            <ol>
+                <li>Copie o caminho completo para a pasta <strong>bin</strong> dentro da pasta do FFmpeg extraída
+                    <br>(exemplo: <code>C:\ffmpeg\bin</code>)</li>
+                <li>Clique no botão Iniciar e pesquise por "Variáveis de ambiente" ou "Edit environment variables"</li>
+                <li>Clique em "Editar as variáveis de ambiente do sistema"</li>
+                <li>Na janela que abrir, clique no botão "Variáveis de Ambiente"</li>
+                <li>Na seção "Variáveis do sistema", encontre a variável "Path" e selecione-a</li>
+                <li>Clique em "Editar"</li>
+                <li>Clique em "Novo" e cole o caminho para a pasta bin do FFmpeg</li>
+                <li>Clique em "OK" em todas as janelas para salvar as alterações</li>
+            </ol>
+        </div>
+        
+        <div class="instruction-step">
+            <div class="step-title">
+                <span class="step-number">4</span>
+                Verificar a instalação
+            </div>
+            <p>
+                Para verificar se o FFmpeg foi instalado corretamente:
+            </p>
+            <ol>
+                <li>Abra um novo Prompt de Comando ou PowerShell (é importante ser uma nova janela)</li>
+                <li>Digite o seguinte comando e pressione Enter:</li>
+            </ol>
+            <div class="terminal-command">ffmpeg -version</div>
+            <p>
+                Se você ver informações sobre a versão do FFmpeg, a instalação foi bem-sucedida!
+            </p>
+        </div>
+        
+        <div class="instruction-step">
+            <div class="step-title">
+                <span class="step-number">5</span>
+                Reiniciar o aplicativo
+            </div>
+            <p>
+                Após instalar o FFmpeg e adicioná-lo ao PATH:
+            </p>
+            <ol>
+                <li>Feche o navegador onde o aplicativo de download está aberto</li>
+                <li>Reabra o aplicativo</li>
+                <li>Você verá um indicador mostrando que o FFmpeg está disponível</li>
+                <li>Agora você poderá baixar vídeos em resolução de até 4K!</li>
+            </ol>
+        </div>
+        
+        <div class="instruction-step">
+            <div class="step-title">
+                <span class="step-number">6</span>
+                Solução de problemas comuns
+            </div>
+            <p>
+                Se você estiver tendo problemas:
+            </p>
+            <ul>
+                <li><strong>O comando "ffmpeg" não é reconhecido:</strong> Verifique se você adicionou o caminho correto ao PATH e reinicie o computador.</li>
+                <li><strong>O aplicativo ainda não reconhece o FFmpeg:</strong> Reinicie o aplicativo ou seu navegador.</li>
+                <li><strong>Erros durante o download:</strong> Verifique se o FFmpeg foi instalado corretamente executando o comando <code>ffmpeg -version</code>.</li>
+            </ul>
+        </div>
+        
+        <div class="return-home">
+            <a href="/">← Voltar para a página de download</a>
+        </div>
+    </div>
+</body>
+</html> 

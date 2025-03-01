@@ -260,6 +260,12 @@ class LoadingAnimation {
             this.overlay = null;
             this.element = null;
             this.isActive = false;
+            
+            // Restaurar o scroll da página
+            document.body.style.overflow = '';
+            
+            // Restaurar qualquer elemento que possa ter sido deslocado
+            document.body.style.paddingRight = '';
         }, 300);
     }
 }

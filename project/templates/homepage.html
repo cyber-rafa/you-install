@@ -171,15 +171,46 @@
         
         function resetSearch() {
             document.getElementById("url").value = "";
+            document.getElementById("url").classList.remove("has-content");
+            document.getElementById("url").parentElement.classList.remove("active-form");
             
             document.getElementById("videoInfo").style.display = "none";
             document.getElementById("qualitySection").style.display = "none";
             document.getElementById("playlistSection").style.display = "none";
             document.getElementById("status").style.display = "none";
             
+            document.getElementById("status").classList.remove("show");
+            document.body.classList.remove("downloading");
+            document.body.classList.remove("download-completed");
+            
+            document.body.style.overflow = '';
+            document.body.style.paddingRight = '';
+            
             document.getElementById("videoForm").style.display = "block";
             
+            document.querySelectorAll('button.loading').forEach(button => {
+                button.classList.remove('loading');
+                button.disabled = false;
+            });
+            
+            document.querySelectorAll('a[style*="display: none"]').forEach(element => {
+                if (element.parentNode) {
+                    element.parentNode.removeChild(element);
+                }
+            });
+            
             document.getElementById("url").focus();
+            
+            window.scrollTo({top: 0, behavior: 'smooth'});
+            
+            const searchButton = document.querySelector("#videoForm button");
+            if (searchButton.classList.contains('loading')) {
+                hideLoadingAnimation();
+            }
+            
+            if (window.loadingAnimation && window.loadingAnimation.isActive) {
+                stopLoading();
+            }
         }
         
         function downloadFFmpeg() {
@@ -197,24 +228,16 @@
                     if (data.status === 'installed' || data.status === 'available') {
                         progressBar.style.width = '100%';
                         statusText.textContent = 'FFmpeg instalado com sucesso!';
-                        
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 2000);
+                        setTimeout(() => {window.location.reload();}, 2000);
                     } else {
                         progressBar.style.width = '50%';
                         statusText.textContent = 'Falha ao instalar FFmpeg. Tente a instalação manual.';
-                        
-                        setTimeout(() => {
-                            modal.style.display = 'none';
-                        }, 3000);
+                        setTimeout(() => {modal.style.display = 'none';}, 3000);
                     }
                 })
                 .catch(error => {
                     statusText.textContent = 'Erro ao instalar FFmpeg: ' + error;
-                    setTimeout(() => {
-                        modal.style.display = 'none';
-                    }, 3000);
+                    setTimeout(() => {modal.style.display = 'none';}, 3000);
                 });
         }
 
@@ -237,8 +260,21 @@
         function updateStatus(message, isError = false) {
             const statusElement = document.getElementById("status");
             statusElement.textContent = message;
-            statusElement.style.display = "block";
             statusElement.className = "status-message" + (isError ? " error" : " success");
+            
+            statusElement.classList.remove("show");
+            
+            statusElement.style.display = "block";
+            statusElement.style.opacity = "0";
+            statusElement.style.maxHeight = "0";
+            
+            void statusElement.offsetWidth;
+            
+            setTimeout(() => {
+                statusElement.classList.add("show");
+                statusElement.style.opacity = "1";
+                statusElement.style.maxHeight = "100px";
+            }, 10);
         }
 
         function showLoadingAnimation() {
@@ -270,31 +306,28 @@
                 body: new URLSearchParams({ url: url }),
                 headers: { "Content-Type": "application/x-www-form-urlencoded" }
             })
-                .then(response => {
-                    if (!response.ok) {
-                        return response.text().then(text => {
-                            throw new Error(text || "Erro ao buscar informações do vídeo");
-                        });
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    hideLoadingAnimation();
-                    console.log("Dados recebidos:", data);
-                    
-                    document.getElementById("status").style.display = "none";
-                    
-                    if (data.type === "video" || (!data.type && !data.is_playlist)) {
-                        displayVideoInfo(data);
-                    } else if (data.type === "playlist" || data.is_playlist) {
-                        displayPlaylistInfo(data);
-                    }
-                })
-                .catch(error => {
-                    hideLoadingAnimation();
-                    console.error("Erro:", error);
-                    updateStatus("Erro: " + error.message, true);
-                });
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        throw new Error(text || "Erro ao buscar informações do vídeo");
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                hideLoadingAnimation();
+                document.getElementById("status").style.display = "none";
+                
+                if (data.type === "video" || (!data.type && !data.is_playlist)) {
+                    displayVideoInfo(data);
+                } else if (data.type === "playlist" || data.is_playlist) {
+                    displayPlaylistInfo(data);
+                }
+            })
+            .catch(error => {
+                hideLoadingAnimation();
+                updateStatus("Erro: " + error.message, true);
+            });
         }
 
         function displayVideoInfo(data) {
@@ -305,7 +338,6 @@
             document.getElementById("videoDuration").textContent = formatDuration(data.duration || 0);
             
             document.getElementById("videoInfo").style.display = "block";
-            
             document.getElementById("downloadUrl").value = data.url || url.value;
             
             const qualitySelect = document.getElementById("qualitySelect");
@@ -393,7 +425,6 @@
             }
             
             document.getElementById("qualitySection").style.display = "block";
-            
             document.getElementById("playlistSection").style.display = "none";
         }
 
@@ -418,7 +449,17 @@
             event.preventDefault();
             const formData = new FormData(this);
             
+            document.body.classList.add('downloading');
+            
             startLoading("Baixando vídeo...");
+            let downloadUrl = null;
+            let downloadElement = null;
+            
+            const downloadButton = this.querySelector("button[type='submit']");
+            if (downloadButton) {
+                downloadButton.disabled = true;
+                downloadButton.classList.add("loading");
+            }
             
             fetch("/download", {
                 method: "POST",
@@ -434,28 +475,66 @@
                 return response.blob();
             })
             .then(blob => {
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = document.getElementById("videoTitle").textContent + ".mp4";
-                document.body.appendChild(a);
-                
-                updateLoading(90, "Iniciando download...");
-                setTimeout(() => {
-                    a.click();
-                    a.remove();
-                    stopLoading();
-                    updateStatus("Download concluído!");
+                try {
+                    document.getElementById("videoInfo").style.transform = "translateZ(0)";
+                    document.getElementById("qualitySection").style.transform = "translateZ(0)";
                     
-                    setTimeout(() => {
-                        resetSearch();
-                    }, 3000);
-                }, 500);
+                    downloadUrl = window.URL.createObjectURL(blob);
+                    downloadElement = document.createElement("a");
+                    downloadElement.href = downloadUrl;
+                    downloadElement.download = document.getElementById("videoTitle").textContent + ".mp4";
+                    downloadElement.style.display = "none";
+                    downloadElement.setAttribute("aria-hidden", "true");
+                    downloadElement.setAttribute("tabindex", "-1");
+                    document.body.appendChild(downloadElement);
+                    
+                    updateLoading(90, "Iniciando download...");
+                    return new Promise(resolve => {
+                        setTimeout(() => {
+                            downloadElement.click();
+                            resolve();
+                        }, 300);
+                    });
+                } catch (error) {
+                    throw new Error("Falha ao iniciar o download");
+                }
+            })
+            .then(() => {
+                document.body.classList.add('download-completed');
+                document.body.classList.remove('downloading');
+                
+                updateStatus("Download concluído com sucesso!");
+                
+                setTimeout(() => {
+                    resetSearch();
+                }, 3000);
             })
             .catch(error => {
-                stopLoading();
-                console.error("Erro:", error);
                 updateStatus("Erro: " + error.message, true);
+                document.body.classList.remove('downloading');
+            })
+            .finally(() => {
+                if (downloadButton) {
+                    downloadButton.disabled = false;
+                    downloadButton.classList.remove("loading");
+                }
+                
+                stopLoading();
+                
+                if (downloadElement && downloadElement.parentNode) {
+                    try {
+                        document.body.removeChild(downloadElement);
+                    } catch (e) {}
+                }
+                
+                if (downloadUrl) {
+                    try {
+                        window.URL.revokeObjectURL(downloadUrl);
+                    } catch (e) {}
+                }
+                
+                document.body.style.overflow = '';
+                document.body.style.paddingRight = '';
             });
         });
         
@@ -476,31 +555,28 @@
                         throw new Error(text || "Erro no download da playlist");
                     });
                 }
+                updateLoading(80, "Playlist sendo processada pelo servidor...");
                 return response.text();
             })
             .then(text => {
-                stopLoading();
                 updateStatus("Playlist sendo baixada! Os vídeos serão salvos na pasta 'downloads/playlist'");
-                
                 setTimeout(() => {
                     resetSearch();
                 }, 3000);
             })
             .catch(error => {
-                stopLoading();
-                console.error("Erro:", error);
                 updateStatus("Erro: " + error.message, true);
+            })
+            .finally(() => {
+                stopLoading();
+                window.scrollTo({top: 0, behavior: 'smooth'});
             });
         });
         
         (function() {
             const style = document.createElement('style');
             style.textContent = `
-                button {
-                    position: relative;
-                    overflow: hidden;
-                }
-                
+                button {position: relative; overflow: hidden;}
                 .ripple-effect {
                     position: absolute;
                     border-radius: 50%;
@@ -512,23 +588,14 @@
                     animation: ripple 0.6s;
                     opacity: 0;
                 }
-                
                 @keyframes ripple {
-                    0% {
-                        transform: scale(0);
-                        opacity: 0.5;
-                    }
-                    100% {
-                        transform: scale(4);
-                        opacity: 0;
-                    }
+                    0% {transform: scale(0); opacity: 0.5;}
+                    100% {transform: scale(4); opacity: 0;}
                 }
-                
                 button.loading {
                     background-color: #0056b3 !important;
                     cursor: wait;
                 }
-                
                 .btn-loading-spinner {
                     display: inline-block;
                     width: 24px;
@@ -538,43 +605,14 @@
                     border-top-color: white;
                     animation: spin 1s linear infinite;
                 }
-                
                 @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
+                    0% {transform: rotate(0deg);}
+                    100% {transform: rotate(360deg);}
                 }
-                
-                .loading-dots span {
-                    animation: loadingDots 1.4s infinite ease-in-out both;
-                    opacity: 0.8;
-                }
-                
-                .loading-dots span:nth-child(1) {
-                    animation-delay: 0s;
-                }
-                
-                .loading-dots span:nth-child(2) {
-                    animation-delay: 0.2s;
-                }
-                
-                .loading-dots span:nth-child(3) {
-                    animation-delay: 0.4s;
-                }
-                
-                @keyframes loadingDots {
-                    0%, 80%, 100% { 
-                        transform: scale(0.8); 
-                    }
-                    40% { 
-                        transform: scale(1.2); 
-                    }
-                }
-                
                 .active-form {
                     transform: scale(1.02);
                     transition: all 0.3s ease;
                 }
-                
                 input.has-content {
                     border-color: #4CAF50 !important;
                     box-shadow: 0 0 5px rgba(76, 175, 80, 0.5) !important;

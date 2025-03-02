@@ -259,8 +259,10 @@ def download_ffmpeg():
         return False
 
 def is_ffmpeg_installed():
+    print("Verificando se FFmpeg está instalado...")
     if os.path.exists(FFMPEG_EXECUTABLE):
         try:
+            print(f"FFmpeg encontrado em: {FFMPEG_EXECUTABLE}, testando...")
             result = subprocess.run(
                 [FFMPEG_EXECUTABLE, "-version"], 
                 stdout=subprocess.PIPE, 
@@ -270,10 +272,16 @@ def is_ffmpeg_installed():
             if result.returncode == 0:
                 print(f"FFmpeg local encontrado e funcionando em {FFMPEG_EXECUTABLE}")
                 return True
+            else:
+                print(f"FFmpeg local encontrado mas retornou código {result.returncode}")
+                print(f"Stderr: {result.stderr.decode('utf-8', errors='ignore')}")
         except Exception as e:
-            print(f"FFmpeg local encontrado mas com erro: {e}")
+            print(f"FFmpeg local encontrado mas com erro: {type(e).__name__}: {e}")
+    else:
+        print(f"FFmpeg não encontrado em {FFMPEG_EXECUTABLE}")
     
     try:
+        print("Tentando encontrar FFmpeg no sistema...")
         result = subprocess.run(
             ["ffmpeg", "-version"], 
             stdout=subprocess.PIPE, 
@@ -283,9 +291,13 @@ def is_ffmpeg_installed():
         if result.returncode == 0:
             print("FFmpeg encontrado no sistema")
             return True
+        else:
+            print(f"FFmpeg não encontrado no sistema (código {result.returncode})")
+            print(f"Stderr: {result.stderr.decode('utf-8', errors='ignore')}")
     except Exception as e:
-        print(f"FFmpeg não encontrado no sistema: {e}")
+        print(f"FFmpeg não encontrado no sistema: {type(e).__name__}: {e}")
     
+    print("FFmpeg não encontrado em nenhum lugar")
     return False
 
 def get_ffmpeg_path():
@@ -294,10 +306,27 @@ def get_ffmpeg_path():
     return 'ffmpeg'
 
 def sanitize_filename(title):
+    if not title:
+        return f"video_{int(time.time())}"
+    
+    # Remove caracteres inválidos para nomes de arquivo
     cleaned_title = re.sub(r'[\\/*?:"<>|\'.,!]', "", title)
+    # Substitui espaços por underscore
     cleaned_title = cleaned_title.replace(" ", "_")
+    # Remove pontos duplicados
     cleaned_title = re.sub(r'\.{2,}', '.', cleaned_title)
-    return cleaned_title.strip('.')
+    # Remove caracteres no início e fim
+    cleaned_title = cleaned_title.strip('.')
+    
+    # Limita o tamanho do nome para evitar problemas de caminho longo
+    if len(cleaned_title) > 50:
+        cleaned_title = cleaned_title[:47] + "..."
+        
+    # Se o nome ficou vazio após a limpeza, usa um nome genérico
+    if not cleaned_title:
+        cleaned_title = f"video_{int(time.time())}"
+        
+    return cleaned_title
 
 def format_file_size(size_bytes):
     if size_bytes is None or size_bytes == 0:
@@ -317,18 +346,23 @@ def format_file_size(size_bytes):
 def with_retry(func, *args, max_retries=MAX_RETRIES, retry_delay=RETRY_DELAY, **kwargs):
     last_error = None
     
+    print(f"Iniciando com_retry para função {func.__name__}, máx tentativas: {max_retries}")
     for attempt in range(max_retries):
         try:
-            return func(*args, **kwargs)
+            print(f"Tentativa {attempt+1}/{max_retries} para {func.__name__}")
+            result = func(*args, **kwargs)
+            print(f"Tentativa {attempt+1}/{max_retries} para {func.__name__} bem-sucedida")
+            return result
         except Exception as e:
             last_error = e
-            print(f"Tentativa {attempt+1}/{max_retries} falhou: {str(e)}")
+            print(f"Tentativa {attempt+1}/{max_retries} falhou: {type(e).__name__}: {str(e)}")
             
             if attempt < max_retries - 1:
                 wait_time = retry_delay * (attempt + 1)
                 print(f"Aguardando {wait_time}s antes da próxima tentativa...")
                 time.sleep(wait_time)
     
+    print(f"Todas as {max_retries} tentativas para {func.__name__} falharam. Último erro: {type(last_error).__name__}: {str(last_error)}")
     raise last_error
 
 @app.route('/')
@@ -380,7 +414,7 @@ def get_video_info():
         progressive_formats = []
         for f in info['formats']:
             if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
-                height = f.get('height', 0)
+                height = f.get('height', 0) or 0
                 if height > 0:
                     progressive_formats.append({
                         'format_id': f['format_id'],
@@ -406,7 +440,7 @@ def get_video_info():
             if best_audio:
                 for f in info['formats']:
                     if f.get('vcodec') != 'none' and f.get('acodec') == 'none':
-                        height = f.get('height', 0)
+                        height = f.get('height', 0) or 0
                         if height > 0:
                             format_id = f"{f['format_id']}+{best_audio['format_id']}"
                             video_size = f.get('filesize', 0) or 0
@@ -483,81 +517,150 @@ def download_video():
 
         with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
             info = ydl.extract_info(url, download=False)
-            title = sanitize_filename(info['title'])
             
-            # Estima o tamanho do arquivo com base nas informações disponíveis
-            estimated_size_mb = 0
-            for f in info.get('formats', []):
-                if f.get('format_id') == format_id.split('+')[0]:
-                    filesize = f.get('filesize', 0)
-                    if filesize:
-                        estimated_size_mb = filesize / (1024 * 1024)
-                        # Adiciona margem para arquivos combinados
-                        if '+' in format_id:
-                            estimated_size_mb *= 1.5
-                        break
+            # Sanitiza o título do vídeo para usar como nome de arquivo
+            original_title = info.get('title', 'video')
+            title = sanitize_filename(original_title)
+            print(f"Título original: {original_title}")
+            print(f"Título sanitizado: {title}")
             
-            # Se não conseguiu estimar, usa um valor padrão baseado na duração
-            if estimated_size_mb == 0 and info.get('duration'):
-                # Estimativa aproximada: 1MB por minuto para 360p, 2.5MB para 720p, 8MB para 1080p, etc.
-                heights = [f.get('height', 0) for f in info.get('formats', [])]
-                max_height = max(heights) if heights else 720
-                mb_per_minute = 1  # 360p
-                if max_height >= 2160:
-                    mb_per_minute = 20  # 4K
-                elif max_height >= 1440:
-                    mb_per_minute = 12  # 2K
-                elif max_height >= 1080:
-                    mb_per_minute = 8   # 1080p
-                elif max_height >= 720:
-                    mb_per_minute = 2.5  # 720p
-                
-                duration_minutes = info.get('duration', 0) / 60
-                estimated_size_mb = duration_minutes * mb_per_minute
+            # Garante que o diretório de downloads existe
+            os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
             
-            # Reserva espaço seguro
-            estimated_size_mb = max(estimated_size_mb, 50)  # Mínimo 50MB
+            # Cria um nome de arquivo mais simples para evitar problemas
+            unique_id = str(int(time.time()))
+            safe_filename = f"video_{unique_id}"
+            output_path = os.path.join(DOWNLOAD_FOLDER, f"{safe_filename}.mp4")
+            print(f"Caminho de saída: {output_path}")
             
-            if not check_storage_space(estimated_size_mb):
-                return "Espaço de armazenamento insuficiente. Por favor, tente novamente mais tarde ou escolha uma qualidade menor.", 507
-            
-            output_path = os.path.join(DOWNLOAD_FOLDER, f"{title}.mp4")
-            
+            # Configurações simplificadas para o youtube-dl
             ydl_opts = {
                 'format': format_id,
                 'outtmpl': output_path,
-                'quiet': True,
-                'no_warnings': True,
+                'quiet': False,
+                'verbose': True,
+                'no_warnings': False,
                 'nocheckcertificate': True,
-                'ignoreerrors': False,
-                'noplaylist': True,
                 'socket_timeout': HTTP_TIMEOUT,
                 'retries': MAX_RETRIES,
                 'fragment_retries': MAX_RETRIES,
-                'postprocessors': [{
-                    'key': 'FFmpegMetadata',
-                    'add_metadata': True,
-                }]
+                'nooverwrites': False,
+                'ignoreerrors': True,
+                'noprogress': False,
+                'postprocessors': [],
+                'progress_hooks': [],
+                'ignorecertificate': True,
+                'socket_timeout': 60
             }
             
-            if os.path.exists(FFMPEG_EXECUTABLE):
-                ydl_opts['ffmpeg_location'] = os.path.dirname(FFMPEG_EXECUTABLE)
+            # Tenta usar FFmpeg do sistema em vez de procurar localmente
+            try:
+                result = subprocess.run(
+                    ["ffmpeg", "-version"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    print("FFmpeg encontrado no sistema, usando caminho padrão")
+                else:
+                    # Tenta usar o caminho local
+                    if os.path.exists(FFMPEG_EXECUTABLE):
+                        print(f"Usando FFmpeg em: {FFMPEG_EXECUTABLE}")
+                        ydl_opts['ffmpeg_location'] = os.path.dirname(FFMPEG_EXECUTABLE)
+                    else:
+                        print("FFmpeg não encontrado, usando formato simples")
+                        ydl_opts['format'] = 'best'
+            except Exception as e:
+                print(f"Erro ao verificar FFmpeg: {e}, usando formato simples")
+                ydl_opts['format'] = 'best'
             
             def download_with_retry(url, options):
-                with yt_dlp.YoutubeDL(options) as ydl:
-                    ydl.download([url])
-                return True
+                try:
+                    print(f"Tentando baixar: {url}")
+                    print(f"Opções de download: {options}")
+                    
+                    with yt_dlp.YoutubeDL(options) as ydl:
+                        ydl.download([url])
+                    
+                    print(f"Download concluído! Verificando arquivo: {output_path}")
+                    if os.path.exists(output_path):
+                        file_size = os.path.getsize(output_path) / (1024 * 1024)
+                        print(f"Arquivo criado com sucesso! Tamanho: {file_size:.2f} MB")
+                    return True
+                    
+                except Exception as e:
+                    print(f"Erro detalhado no download: {type(e).__name__}: {str(e)}")
+                    if isinstance(e, yt_dlp.utils.DownloadError):
+                        print("Erro de download do yt-dlp. Tentando formato alternativo...")
+                        options['format'] = 'best'  # Tenta o melhor formato disponível
+                        with yt_dlp.YoutubeDL(options) as ydl:
+                            ydl.download([url])
+                        return True
+                    raise e
                 
             with_retry(download_with_retry, url, ydl_opts)
             
             if os.path.exists(output_path):
-                return send_file(output_path, as_attachment=True, download_name=f"{title}.mp4")
+                print(f"Arquivo baixado com sucesso: {output_path}")
+                file_size = os.path.getsize(output_path)
+                
+                # Retorna apenas o ID do arquivo para o frontend fazer o download direto
+                return jsonify({
+                    "success": True,
+                    "file_id": unique_id,
+                    "title": title,
+                    "size": file_size
+                })
             else:
-                return "Erro ao baixar o vídeo. O arquivo não foi criado.", 500
+                print(f"ERRO: Arquivo não encontrado após download: {output_path}")
+                return jsonify({
+                    "success": False,
+                    "error": "Arquivo não foi criado"
+                }), 500
 
     except Exception as e:
-        print(f"Erro ao baixar vídeo: {str(e)}")
-        return f"Erro ao baixar o vídeo: {str(e)}", 500
+        print(f"Erro ao baixar vídeo: {type(e).__name__}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/get_file/<file_id>', methods=['GET'])
+def get_file(file_id):
+    try:
+        # Sanitiza o file_id para evitar ataque de traversal
+        safe_id = re.sub(r'[^0-9]', '', file_id)
+        if not safe_id:
+            return "ID de arquivo inválido", 400
+            
+        file_path = os.path.join(DOWNLOAD_FOLDER, f"video_{safe_id}.mp4")
+        
+        if not os.path.exists(file_path):
+            return "Arquivo não encontrado", 404
+            
+        file_size = os.path.getsize(file_path)
+        title = request.args.get('title', f'video_{safe_id}')
+        
+        # Enviar o arquivo com o método mais simples e com os cabeçalhos adequados
+        response = send_file(
+            file_path, 
+            mimetype='video/mp4',
+            as_attachment=True,
+            download_name=f"{title}.mp4"
+        )
+        
+        # Adiciona cabeçalhos essenciais
+        response.headers['Content-Length'] = str(file_size)
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        return response
+        
+    except Exception as e:
+        print(f"Erro ao enviar arquivo: {type(e).__name__}: {str(e)}")
+        return f"Erro ao enviar o arquivo: {str(e)}", 500
 
 @app.route('/download_playlist', methods=['POST'])
 def download_playlist():

@@ -13,8 +13,7 @@
 [Instalação](#-instalação) • 
 [Como Usar](#-como-usar) • 
 [Requisitos](#-requisitos) • 
-[Capturas de Tela](#-capturas-de-tela) •
-[Observações](#-observações)
+[Observações](#-observações) •
 
 </div>
 

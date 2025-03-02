@@ -889,13 +889,10 @@
                     throw new Error(data.error || "Erro ao processar o vídeo");
                 }
                 
-                // Título do vídeo sanitizado para o nome do arquivo
                 const videoTitle = data.title || document.getElementById("videoTitle").textContent;
                 
-                // Criamos a URL para o download direto
                 const downloadUrl = `/get_file/${data.file_id}?title=${encodeURIComponent(videoTitle)}`;
                 
-                // Inicia o download criando um elemento <a> com a URL e clicando nele
                 const downloadElement = document.createElement("a");
                 downloadElement.href = downloadUrl;
                 downloadElement.style.display = "none";
